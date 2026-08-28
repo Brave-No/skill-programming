@@ -5,3 +5,4 @@ coverage/
 .venv/
 .DS_Store
 *.tsbuildinfo
+server-credentials.env

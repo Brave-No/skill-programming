@@ -1,10 +1,11 @@
+import os
 from pathlib import Path
 
 from playwright.sync_api import expect, sync_playwright
 
 
-BASE_URL = "http://127.0.0.1:5173/v2"
-ORIGIN = "http://127.0.0.1:5173"
+BASE_URL = os.environ.get("ZERO_WAREHOUSE_BASE_URL", "http://127.0.0.1:5173/v2")
+ORIGIN = BASE_URL.split("/v2", 1)[0]
 OUTPUTS = Path(__file__).resolve().parents[1] / "outputs"
 OUTPUTS.mkdir(exist_ok=True)
 STEP_IDS = [
@@ -205,6 +206,7 @@ def run_desktop(browser):
 
     page.get_by_role("button", name="提交全部用例").click()
     expect(page.locator(".parse-status")).to_contain_text("待填写")
+    expect(page.get_by_role("dialog", name="关卡通关")).to_have_count(0)
     assert (
         page.evaluate("document.activeElement?.getAttribute('aria-label')")
         == "准备变量第 1 行"
@@ -234,7 +236,17 @@ def run_desktop(browser):
     page.get_by_role("button", name="运行当前用例").click()
     expect(page.locator(".code-run-result strong")).to_have_text("用例通过")
     page.get_by_role("button", name="提交全部用例").click()
+    celebration = page.get_by_role("dialog", name="关卡通关")
+    expect(celebration).to_be_visible()
+    expect(celebration.get_by_label("8 / 8 个公开与隐藏用例通过")).to_be_visible()
+    celebration.get_by_role("button", name="重播通关动画").click()
+    expect(celebration).to_be_visible()
+    page.keyboard.press("Escape")
+    expect(page.get_by_role("dialog", name="关卡通关")).to_have_count(0)
     expect(page.get_by_text("全部用例通过", exact=False)).to_be_visible()
+    expect(page.locator(".submission-result")).to_contain_text("8 / 8")
+    page.get_by_role("button", name="提交全部用例").click()
+    expect(page.get_by_role("dialog", name="关卡通关")).to_have_count(0)
     expect(page.locator(".submission-result")).to_contain_text("8 / 8")
     assert_no_horizontal_overflow(page)
     page.screenshot(
@@ -245,6 +257,7 @@ def run_desktop(browser):
     page.wait_for_timeout(450)
     page.reload()
     page.wait_for_load_state("networkidle")
+    expect(page.get_by_role("dialog", name="关卡通关")).to_have_count(0)
     expect(page.get_by_role("radio", name="结构填写")).to_be_checked()
     assert_custom_structure_preserved(page)
     assert_reference_complete(page)
@@ -255,17 +268,20 @@ def run_desktop(browser):
     assert_reference_complete(page)
     assembled = assemble_from_copied_steps(page)
     page.get_by_role("button", name="提交全部用例").click()
+    expect(page.get_by_role("dialog", name="关卡通关")).to_have_count(0)
     expect(page.locator(".submission-result")).to_contain_text("8 / 8")
 
     page.locator(".cm-content").fill(CUSTOM_BODY)
     assert_reference_complete(page)
     assert_static_dictionary(page)
     page.get_by_role("button", name="提交全部用例").click()
+    expect(page.get_by_role("dialog", name="关卡通关")).to_have_count(0)
     expect(page.locator(".submission-result")).to_contain_text("8 / 8")
 
     page.wait_for_timeout(450)
     page.reload()
     page.wait_for_load_state("networkidle")
+    expect(page.get_by_role("dialog", name="关卡通关")).to_have_count(0)
     expect(page.get_by_role("radio", name="自由编写")).to_be_checked()
     assert editor_value(page).startswith("int len = nums.length;")
     assert_reference_complete(page)
@@ -276,6 +292,7 @@ def run_desktop(browser):
     hidden_failure = CUSTOM_BODY.replace("fast < len", "fast < 5")
     page.locator(".cm-content").fill(hidden_failure)
     page.get_by_role("button", name="提交全部用例").click()
+    expect(page.get_by_role("dialog", name="关卡通关")).to_have_count(0)
     expect(page.locator(".submission-result")).to_contain_text("3 / 8")
     expect(page.locator(".submission-result")).to_contain_text("隐藏用例未通过")
     page.get_by_role("button", name="重置当前模式").click()
@@ -311,6 +328,7 @@ def run_mobile(browser):
         device_scale_factor=1,
         has_touch=True,
         is_mobile=True,
+        reduced_motion="reduce",
     )
     page = context.new_page()
     errors = []
@@ -346,6 +364,24 @@ def run_mobile(browser):
     assert page.locator(".code-editor-frame .cm-editor").bounding_box()["height"] >= 390
     assert_no_horizontal_overflow(page)
 
+    page.locator(".cm-content").fill(CUSTOM_BODY)
+    page.get_by_role("button", name="提交全部用例").click()
+    celebration = page.get_by_role("dialog", name="关卡通关")
+    expect(celebration).to_be_visible()
+    expect(celebration.get_by_label("8 / 8 个公开与隐藏用例通过")).to_be_visible()
+    assert celebration.locator(".sp-completion__verdict").evaluate(
+        "node => getComputedStyle(node).opacity"
+    ) == "1"
+    assert celebration.locator(".sp-completion__verdict").evaluate(
+        "node => getComputedStyle(node).animationName"
+    ) == "none"
+    assert_no_horizontal_overflow(page)
+    page.screenshot(
+        path=OUTPUTS / "zero-warehouse-completion-mobile-reduced.png",
+    )
+    celebration.get_by_role("button", name="跳过通关动画").click()
+    expect(page.locator(".submission-result")).to_contain_text("8 / 8")
+
     page.get_by_role("button", name="参考", exact=True).click()
     expect(page.locator(".logic-reference-step")).to_have_count(7)
     assert not errors, errors
@@ -360,5 +396,5 @@ with sync_playwright() as playwright:
     chromium.close()
     print(
         "CODE_PRACTICE_QA_PASS locked-structure canonical-reference custom-identifiers "
-        "dual-drafts active-reset mobile"
+        "dual-drafts active-reset completion mobile reduced-motion"
     )

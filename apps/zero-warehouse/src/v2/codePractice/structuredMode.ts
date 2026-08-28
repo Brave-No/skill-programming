@@ -216,11 +216,14 @@ const normalizedStatementLines = (value: string, terminator: string, lineCount: 
   return lines.length ? lines : [terminator]
 }
 
-export const composeStructuredBody = (draft: StructuredDraft): StructuredComposition => {
+export const composeStructuredBody = (
+  draft: StructuredDraft,
+  scaffold: StructuredScaffold = STRUCTURED_SCAFFOLD,
+): StructuredComposition => {
   const lines: string[] = []
   const ranges = {} as Record<StructuredSlotId, StructuredSlotRange>
 
-  for (const node of STRUCTURED_SCAFFOLD.body) {
+  for (const node of scaffold.body) {
     if (node.kind === 'blank') {
       lines.push('')
       continue
@@ -306,7 +309,9 @@ export const slotForDiagnostic = (
   composition: StructuredComposition,
   diagnostic: Pick<JavaDiagnostic, 'line' | 'column'>,
 ): StructuredSlotId => {
-  const entries = STRUCTURED_SLOT_IDS.map((slotId) => ({ slotId, range: composition.ranges[slotId] }))
+  const entries = STRUCTURED_SLOT_IDS
+    .map((slotId) => ({ slotId, range: composition.ranges[slotId] }))
+    .filter((entry): entry is { slotId: StructuredSlotId; range: StructuredSlotRange } => Boolean(entry.range))
   const exact = entries.find(({ range }) => (
     diagnostic.line >= range.lineStart
     && diagnostic.line <= range.lineEnd
@@ -342,14 +347,22 @@ export const slotForDiagnostic = (
       Math.abs(diagnostic.line - right.range.lineEnd),
     )
     return leftDistance - rightDistance
-  })[0].slotId
+  })[0]?.slotId ?? 'preparation'
+}
+
+interface StructuredValidationOptions {
+  normalizeSource?: (source: string) => string
+  requiredSlotIds?: StructuredSlotId[]
+  issueSlotAliases?: Partial<Record<StructuredSlotId, StructuredSlotId>>
 }
 
 export const validateStructuredDraft = (
   draft: StructuredDraft,
   composition: StructuredComposition = composeStructuredBody(draft),
+  options: StructuredValidationOptions = {},
 ): StructuredValidation => {
-  const missingSlot = STRUCTURED_SLOT_IDS.find((slotId) => !draft[slotId].trim())
+  const requiredSlotIds = options.requiredSlotIds ?? [...STRUCTURED_SLOT_IDS]
+  const missingSlot = requiredSlotIds.find((slotId) => !draft[slotId].trim())
   if (missingSlot) {
     return {
       kind: 'invalid',
@@ -359,7 +372,7 @@ export const validateStructuredDraft = (
 
   let program
   try {
-    program = parseJavaSubset(composition.source)
+    program = parseJavaSubset(options.normalizeSource?.(composition.source) ?? composition.source)
   } catch (error) {
     const diagnostic = diagnosticFrom(error)
     return {
@@ -380,7 +393,7 @@ export const validateStructuredDraft = (
       kind: 'invalid',
       issue: {
         kind: 'semantic',
-        slotId: failedCheck.slotId,
+        slotId: options.issueSlotAliases?.[failedCheck.slotId] ?? failedCheck.slotId,
         message: failedCheck.message,
       },
     }

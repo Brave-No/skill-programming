@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 from playwright.sync_api import expect, sync_playwright
@@ -5,7 +6,7 @@ from playwright.sync_api import expect, sync_playwright
 
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUTS = ROOT / "outputs"
-BASE_URL = "http://127.0.0.1:5173/v2"
+BASE_URL = os.environ.get("ZERO_WAREHOUSE_V2_URL", "http://127.0.0.1:5173/v2")
 
 
 def complete_manual(page):

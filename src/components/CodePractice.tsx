@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import CodeMirror from '@uiw/react-codemirror'
+import { cpp } from '@codemirror/lang-cpp'
 import { java } from '@codemirror/lang-java'
+import { javascript } from '@codemirror/lang-javascript'
+import { python } from '@codemirror/lang-python'
 import { EditorView } from '@codemirror/view'
 import {
   AlertTriangle,
@@ -11,14 +14,13 @@ import {
   Code2,
   Copy,
   FileCode2,
+  LayoutGrid,
   ListTree,
   PencilLine,
   Play,
   RotateCcw,
   Send,
 } from 'lucide-react'
-import type { JavaDiagnostic, JavaProgram, JavaRunResult } from '../codePractice/javaSubset'
-import { parseJavaSubset, runJavaSubset } from '../codePractice/javaSubset'
 import {
   composeStructuredBody,
   createEmptyStructuredDraft,
@@ -27,32 +29,63 @@ import {
   type StructuredDraft,
   type StructuredIssue,
 } from '../codePractice/structuredMode'
+import {
+  CODE_LANGUAGES,
+  codeLanguage,
+  createLanguageChallenge,
+  type CodeLanguageId,
+} from '../codePractice/languages'
 import type {
   AlgorithmChallenge,
+  ChallengeSkillDefinition,
+  CodePracticeDiagnostic,
   CodePracticeCase,
+  CodePracticeRunResult,
   StructuredScaffold,
+  VerificationBatchBase,
 } from '../challenges/types'
+import { ChallengeCompletion } from '../shared/completion'
 
-const FREE_DRAFT_KEY = 'rainline:java-free-draft:v1'
-const STRUCTURED_DRAFT_KEY = 'rainline:java-structured-draft:v2'
-const MODE_KEY = 'rainline:java-mode:v1'
+const storageKeys = (challengeId: string, languageId: CodeLanguageId) => ({
+  freeDraft: `skill-programming:${challengeId}:${languageId}-free-draft:v1`,
+  structuredDraft: `skill-programming:${challengeId}:${languageId}-structured-draft:v1`,
+  mode: `skill-programming:${challengeId}:${languageId}-mode:v1`,
+  completion: `skill-programming:${challengeId}:completion:v1`,
+})
+
+const languageStorageKey = (challengeId: string) => `skill-programming:${challengeId}:code-language:v1`
+
+const editorLanguageExtension = (languageId: CodeLanguageId) => {
+  if (languageId === 'cpp') return cpp()
+  if (languageId === 'python') return python()
+  if (languageId === 'javascript') return javascript()
+  return java()
+}
+
+const readStoredValue = (key: string, legacyKey?: string) => {
+  if (typeof window === 'undefined') return null
+  const current = window.localStorage.getItem(key)
+  if (current !== null || !legacyKey) return current
+  const legacy = window.localStorage.getItem(legacyKey)
+  if (legacy !== null) window.localStorage.setItem(key, legacy)
+  return legacy
+}
 
 type PracticeMode = 'structured' | 'free'
 type ReferenceTab = 'logic' | 'dictionary'
 type MobilePane = 'reference' | 'editor'
 type SlotField = HTMLInputElement
 
-interface CaseRun {
-  testCase: CodePracticeCase
-  result: JavaRunResult
+interface CaseRun<TInput, TOutput> {
+  testCase: CodePracticeCase<TInput, TOutput>
+  result: CodePracticeRunResult<TOutput>
 }
 
-interface SubmissionState {
+interface SubmissionState<TInput, TOutput> {
   passed: boolean
   passedCount: number
   total: number
-  hiddenFailure: boolean
-  firstPublicFailure: CaseRun | null
+  firstFailure: CaseRun<TInput, TOutput> | null
 }
 
 const editorTheme = EditorView.theme({
@@ -75,15 +108,15 @@ const editorTheme = EditorView.theme({
   '.cm-scroller': { overflow: 'auto' },
 })
 
-const diagnosticFrom = (error: unknown): JavaDiagnostic => {
+const diagnosticFrom = (error: unknown): CodePracticeDiagnostic => {
   if (error && typeof error === 'object' && 'diagnostic' in error) {
-    const diagnostic = (error as { diagnostic?: JavaDiagnostic }).diagnostic
+    const diagnostic = (error as { diagnostic?: CodePracticeDiagnostic }).diagnostic
     if (diagnostic) return diagnostic
   }
   return { kind: 'syntax', message: '代码无法解析。', line: 1, column: 1 }
 }
 
-const diagnosticLabel: Record<JavaDiagnostic['kind'], string> = {
+const diagnosticLabel: Record<CodePracticeDiagnostic['kind'], string> = {
   syntax: '语法待调整',
   unsupported: '当前语法不支持',
   runtime: '运行时问题',
@@ -113,11 +146,15 @@ const copyText = async (value: string) => {
   }
 }
 
-const restoreStructuredDraft = (scaffold: StructuredScaffold) => {
+const restoreStructuredDraft = (
+  scaffold: StructuredScaffold,
+  storageKey: string,
+  legacyStorageKey?: string,
+) => {
   const empty = createEmptyStructuredDraft(scaffold)
   if (typeof window === 'undefined') return empty
   try {
-    const parsed = JSON.parse(window.localStorage.getItem(STRUCTURED_DRAFT_KEY) ?? '{}') as Record<string, unknown>
+    const parsed = JSON.parse(readStoredValue(storageKey, legacyStorageKey) ?? '{}') as Record<string, unknown>
     return Object.fromEntries(
       scaffold.slots.map((slot) => [slot.id, typeof parsed[slot.id] === 'string' ? parsed[slot.id] : '']),
     ) as StructuredDraft
@@ -137,6 +174,7 @@ const statementParts = (value: string, count: number) => {
 
 interface StructuredEditorProps {
   scaffold: StructuredScaffold
+  languageLabel: string
   draft: StructuredDraft
   issue: StructuredIssue | null
   onChange: (slotId: string, value: string) => void
@@ -145,6 +183,7 @@ interface StructuredEditorProps {
 
 function StructuredEditor({
   scaffold,
+  languageLabel,
   draft,
   issue,
   onChange,
@@ -210,7 +249,7 @@ function StructuredEditor({
   }
 
   return (
-    <div className="rain-structured-frame" aria-label="Java 结构填写编辑器">
+    <div className="rain-structured-frame" aria-label={`${languageLabel} 结构填写编辑器`}>
       <div className="rain-method-boundary">{scaffold.methodOpen}</div>
       <div className="rain-structured-body">
         {scaffold.body.map((node, nodeIndex) => {
@@ -239,26 +278,72 @@ function StructuredEditor({
           )
         })}
       </div>
-      <div className="rain-method-boundary">{scaffold.methodClose}</div>
+      {scaffold.methodClose && <div className="rain-method-boundary">{scaffold.methodClose}</div>}
     </div>
   )
 }
 
-interface CodePracticeProps {
-  challenge: AlgorithmChallenge<JavaProgram>
+interface CodePracticeProps<
+  ProgramAst,
+  TInput,
+  TOutput,
+  TSkill extends ChallengeSkillDefinition,
+  TBatch extends VerificationBatchBase,
+  TScene extends { target: string },
+> {
+  challenge: AlgorithmChallenge<ProgramAst, TInput, TOutput, TSkill, TBatch, TScene>
   onBack: () => void
+  onExit?: () => void
 }
 
-export default function CodePractice({ challenge, onBack }: CodePracticeProps) {
+interface CodePracticeSessionProps<
+  ProgramAst,
+  TInput,
+  TOutput,
+  TSkill extends ChallengeSkillDefinition,
+  TBatch extends VerificationBatchBase,
+  TScene extends { target: string },
+> extends CodePracticeProps<ProgramAst, TInput, TOutput, TSkill, TBatch, TScene> {
+  languageId: CodeLanguageId
+  onLanguageChange: (languageId: CodeLanguageId) => void
+}
+
+function CodePracticeSession<
+  ProgramAst,
+  TInput,
+  TOutput,
+  TSkill extends ChallengeSkillDefinition,
+  TBatch extends VerificationBatchBase,
+  TScene extends { target: string },
+>({
+  challenge,
+  onBack,
+  onExit,
+  languageId,
+  onLanguageChange,
+}: CodePracticeSessionProps<ProgramAst, TInput, TOutput, TSkill, TBatch, TScene>) {
   const scaffold = challenge.codePractice.scaffold
+  const language = codeLanguage(languageId)
+  const keys = useMemo(() => storageKeys(challenge.id, languageId), [challenge.id, languageId])
+  const runtime = challenge.codePractice.runtime
+  const presentation = challenge.codePractice.presentation
+  const legacyKeys = challenge.codePractice.draftStorage?.legacyKeys
   const publicCases = challenge.codePractice.cases.filter((testCase) => testCase.visibility === 'public')
   const [mode, setMode] = useState<PracticeMode>(() => (
-    typeof window !== 'undefined' && window.localStorage.getItem(MODE_KEY) === 'free' ? 'free' : 'structured'
+    readStoredValue(storageKeys(challenge.id, languageId).mode, languageId === 'java' ? legacyKeys?.mode : undefined) === 'free'
+      ? 'free'
+      : 'structured'
   ))
   const [freeCode, setFreeCode] = useState(() => (
-    typeof window === 'undefined' ? '' : window.localStorage.getItem(FREE_DRAFT_KEY) ?? ''
+    readStoredValue(storageKeys(challenge.id, languageId).freeDraft, languageId === 'java' ? legacyKeys?.free : undefined) ?? ''
   ))
-  const [structuredDraft, setStructuredDraft] = useState<StructuredDraft>(() => restoreStructuredDraft(scaffold))
+  const [structuredDraft, setStructuredDraft] = useState<StructuredDraft>(() => (
+    restoreStructuredDraft(
+      scaffold,
+      storageKeys(challenge.id, languageId).structuredDraft,
+      languageId === 'java' ? legacyKeys?.structured : undefined,
+    )
+  ))
   const [referenceTab, setReferenceTab] = useState<ReferenceTab>('logic')
   const [mobilePane, setMobilePane] = useState<MobilePane>('reference')
   const [selectedMappingId, setSelectedMappingId] = useState(challenge.codePractice.mappings[0].id)
@@ -267,8 +352,13 @@ export default function CodePractice({ challenge, onBack }: CodePracticeProps) {
   const [revealedIssue, setRevealedIssue] = useState<StructuredIssue | null>(null)
   const [attempted, setAttempted] = useState(false)
   const [draftSaved, setDraftSaved] = useState(true)
-  const [lastRun, setLastRun] = useState<CaseRun | null>(null)
-  const [submission, setSubmission] = useState<SubmissionState | null>(null)
+  const [lastRun, setLastRun] = useState<CaseRun<TInput, TOutput> | null>(null)
+  const [submission, setSubmission] = useState<SubmissionState<TInput, TOutput> | null>(null)
+  const [hasCompleted, setHasCompleted] = useState(() => (
+    typeof window !== 'undefined' && window.localStorage.getItem(storageKeys(challenge.id, languageId).completion) !== null
+  ))
+  const [showCompletion, setShowCompletion] = useState(false)
+  const [pendingCompletion, setPendingCompletion] = useState(false)
   const editorView = useRef<EditorView | null>(null)
   const slotFields = useRef<Record<string, SlotField | null>>({})
   const copyTimer = useRef<number | null>(null)
@@ -285,11 +375,11 @@ export default function CodePractice({ challenge, onBack }: CodePracticeProps) {
   const semantic = useMemo(() => {
     if (!activeCode.trim()) return null
     try {
-      return challenge.validate(parseJavaSubset(activeCode))
+      return challenge.validate(runtime.parse(activeCode))
     } catch {
       return null
     }
-  }, [activeCode, challenge])
+  }, [activeCode, challenge, runtime])
   const completedSteps = challenge.codePractice.referenceSteps.filter(
     (step) => semantic?.checks[step.semanticCheck],
   ).length
@@ -297,30 +387,41 @@ export default function CodePractice({ challenge, onBack }: CodePracticeProps) {
   const selectedMapping = challenge.codePractice.mappings.find(
     (entry) => entry.id === selectedMappingId,
   ) ?? challenge.codePractice.mappings[0]
+  const firstFailurePosition = submission?.firstFailure
+    ? challenge.codePractice.cases.findIndex(
+      (testCase) => testCase.id === submission.firstFailure?.testCase.id,
+    ) + 1
+    : 0
 
   useEffect(() => {
-    window.localStorage.setItem(MODE_KEY, mode)
-  }, [mode])
+    window.localStorage.setItem(keys.mode, mode)
+  }, [keys.mode, mode])
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      window.localStorage.setItem(FREE_DRAFT_KEY, freeCode)
+      window.localStorage.setItem(keys.freeDraft, freeCode)
       if (mode === 'free') setDraftSaved(true)
     }, 300)
     return () => window.clearTimeout(timer)
-  }, [freeCode, mode])
+  }, [freeCode, keys.freeDraft, mode])
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      window.localStorage.setItem(STRUCTURED_DRAFT_KEY, JSON.stringify(structuredDraft))
+      window.localStorage.setItem(keys.structuredDraft, JSON.stringify(structuredDraft))
       if (mode === 'structured') setDraftSaved(true)
     }, 300)
     return () => window.clearTimeout(timer)
-  }, [mode, structuredDraft])
+  }, [keys.structuredDraft, mode, structuredDraft])
 
   useEffect(() => () => {
     if (copyTimer.current) window.clearTimeout(copyTimer.current)
   }, [])
+
+  useEffect(() => {
+    if (!pendingCompletion || !submission?.passed) return
+    setShowCompletion(true)
+    setPendingCompletion(false)
+  }, [pendingCompletion, submission])
 
   const clearFeedback = () => {
     setAttempted(false)
@@ -358,8 +459,13 @@ export default function CodePractice({ challenge, onBack }: CodePracticeProps) {
     }
     if (!freeCode.trim()) return { ok: false as const, message: '方法体还是空的。' }
     try {
-      const result = challenge.validate(parseJavaSubset(freeCode))
-      if (!result.valid) return { ok: false as const, message: result.issue?.message ?? '双指针逻辑还没有连通。' }
+      const result = challenge.validate(runtime.parse(freeCode))
+      if (!result.valid) {
+        return {
+          ok: false as const,
+          message: result.issue?.message ?? presentation.semanticFallback,
+        }
+      }
       return { ok: true as const }
     } catch (error) {
       const diagnostic = diagnosticFrom(error)
@@ -368,7 +474,7 @@ export default function CodePractice({ challenge, onBack }: CodePracticeProps) {
     }
   }
 
-  const runCase = (testCase: CodePracticeCase) => {
+  const runCase = (testCase: CodePracticeCase<TInput, TOutput>) => {
     const validation = validateActiveCode()
     setSubmission(null)
     if (!validation.ok) {
@@ -384,7 +490,7 @@ export default function CodePractice({ challenge, onBack }: CodePracticeProps) {
       })
       return
     }
-    const result = runJavaSubset(activeCode, testCase.input, testCase.expected)
+    const result = runtime.run(activeCode, testCase.input, testCase.expected)
     setSelectedCaseId(testCase.id)
     setLastRun({ testCase, result })
     if (result.diagnostic && mode === 'free') focusLine(result.diagnostic.line)
@@ -392,8 +498,9 @@ export default function CodePractice({ challenge, onBack }: CodePracticeProps) {
 
   const submitAll = () => {
     const validation = validateActiveCode()
+    setLastRun(null)
     if (!validation.ok) {
-      setLastRun({
+      const firstFailure: CaseRun<TInput, TOutput> = {
         testCase: selectedCase,
         result: {
           ok: false,
@@ -402,40 +509,49 @@ export default function CodePractice({ challenge, onBack }: CodePracticeProps) {
           diagnostic: validation.diagnostic,
           steps: 0,
         },
+      }
+      setSubmission({
+        passed: false,
+        passedCount: 0,
+        total: challenge.codePractice.cases.length,
+        firstFailure,
       })
-      setSubmission({ passed: false, passedCount: 0, total: challenge.codePractice.cases.length, hiddenFailure: false, firstPublicFailure: null })
       return
     }
     const runs = challenge.codePractice.cases.map((testCase) => ({
       testCase,
-      result: runJavaSubset(activeCode, testCase.input, testCase.expected),
+      result: runtime.run(activeCode, testCase.input, testCase.expected),
     }))
-    const firstPublicFailure = runs.find(
-      (run) => run.testCase.visibility === 'public' && !run.result.ok,
-    ) ?? null
-    const hiddenFailure = runs.some(
-      (run) => run.testCase.visibility === 'hidden' && !run.result.ok,
-    )
+    const firstFailure = runs.find((run) => !run.result.ok) ?? null
     const passedCount = runs.filter((run) => run.result.ok).length
-    setSubmission({
+    const nextSubmission = {
       passed: passedCount === runs.length,
       passedCount,
       total: runs.length,
-      hiddenFailure,
-      firstPublicFailure,
-    })
-    if (firstPublicFailure) setLastRun(firstPublicFailure)
-    else if (!hiddenFailure) setLastRun(runs[0])
-    else setLastRun(null)
+      firstFailure,
+    }
+    if (nextSubmission.passed && !hasCompleted) {
+      window.localStorage.setItem(keys.completion, JSON.stringify({
+        completed: true,
+        passedCount,
+        total: runs.length,
+        completedAt: new Date().toISOString(),
+      }))
+      setHasCompleted(true)
+      setSubmission(nextSubmission)
+      setPendingCompletion(true)
+      return
+    }
+    setSubmission(nextSubmission)
   }
 
   const resetCurrentMode = () => {
     if (mode === 'structured') {
       setStructuredDraft(createEmptyStructuredDraft(scaffold))
-      window.localStorage.removeItem(STRUCTURED_DRAFT_KEY)
+      window.localStorage.removeItem(keys.structuredDraft)
     } else {
       setFreeCode('')
-      window.localStorage.removeItem(FREE_DRAFT_KEY)
+      window.localStorage.removeItem(keys.freeDraft)
     }
     setDraftSaved(false)
     clearFeedback()
@@ -452,7 +568,7 @@ export default function CodePractice({ challenge, onBack }: CodePracticeProps) {
     scene: '场景对象',
     skill: '技能动作',
     syntax: '语法结构',
-    api: '数组与 API',
+    api: presentation.dictionaryApiLabel,
   }
 
   return (
@@ -461,12 +577,25 @@ export default function CodePractice({ challenge, onBack }: CodePracticeProps) {
         <div className="rain-code-title">
           <span aria-hidden="true"><Code2 size={21} /></span>
           <div>
-            <p>03 代码实战 · Java</p>
-            <h2>把双端巡检写成代码</h2>
+            <p>{presentation.eyebrow}</p>
+            <h2>{presentation.title}</h2>
           </div>
         </div>
         <div className="rain-code-header-actions">
+          <label className="rain-language-picker">
+            <span>提交语言</span>
+            <select
+              value={languageId}
+              aria-label="提交语言"
+              onChange={(event) => onLanguageChange(event.target.value as CodeLanguageId)}
+            >
+              {CODE_LANGUAGES.map((option) => (
+                <option key={option.id} value={option.id}>{option.label}</option>
+              ))}
+            </select>
+          </label>
           <span className="rain-draft-state"><i className={draftSaved ? 'is-saved' : ''} />{draftSaved ? '草稿已保存' : '正在保存'}</span>
+          {onExit && <button type="button" onClick={onExit}><LayoutGrid size={17} />挑战选择</button>}
           <button type="button" onClick={onBack}><ArrowLeft size={17} />返回技能调试</button>
         </div>
       </header>
@@ -477,9 +606,9 @@ export default function CodePractice({ challenge, onBack }: CodePracticeProps) {
       </nav>
 
       <div className={`rain-code-workbench mobile-pane-${mobilePane}`}>
-        <aside className="rain-reference-panel" aria-label="Java 代码参考">
+        <aside className="rain-reference-panel" aria-label={`${language.label} 代码参考`}>
           <div className="rain-panel-heading">
-            <div><p>已验证动作 → Java</p><h3>{referenceTab === 'logic' ? '完整逻辑代码' : '代码词典'}</h3></div>
+            <div><p>{`已验证动作 → ${language.label}`}</p><h3>{referenceTab === 'logic' ? '完整逻辑代码' : '代码词典'}</h3></div>
             {referenceTab === 'logic' && <span>{completedSteps}/{challenge.codePractice.referenceSteps.length}</span>}
           </div>
           <div className="rain-reference-tabs" role="tablist">
@@ -493,12 +622,12 @@ export default function CodePractice({ challenge, onBack }: CodePracticeProps) {
                 <article key={step.id} className={`rain-logic-step depth-${step.depth} tone-${step.tone}`} data-step-id={step.id} data-concept-ids={step.conceptIds.join(' ')}>
                   <span aria-hidden="true">{step.order}</span>
                   <div>
-                    <header><strong>{step.skillLabel}</strong><small className={semantic?.checks[step.semanticCheck] ? 'is-done' : ''}>{semantic?.checks[step.semanticCheck] ? <Check size={11} /> : null}{semantic?.checks[step.semanticCheck] ? '已识别' : '待填写'}</small></header>
+                    <header><strong>{step.stepLabel}</strong><small className={semantic?.checks[step.semanticCheck] ? 'is-done' : ''}>{semantic?.checks[step.semanticCheck] ? <Check size={11} /> : null}{semantic?.checks[step.semanticCheck] ? '已识别' : '待填写'}</small></header>
                     <b>{step.worldAction}</b>
                     <p>{step.logicPurpose}</p>
                     <div className="rain-code-fragment">
                       <pre><code>{step.code}</code></pre>
-                      <button type="button" onClick={() => void copyStep(step.id, step.code)} aria-label={`复制代码段：${step.skillLabel}`} title="复制代码段">
+                      <button type="button" onClick={() => void copyStep(step.id, step.code)} aria-label={`复制代码段：${step.stepLabel}`} title="复制代码段">
                         {copiedStepId === step.id ? <Check size={15} /> : <Copy size={15} />}
                       </button>
                     </div>
@@ -527,9 +656,9 @@ export default function CodePractice({ challenge, onBack }: CodePracticeProps) {
           )}
         </aside>
 
-        <div className="rain-editor-panel" aria-label="Java 代码编辑器">
+        <div className="rain-editor-panel" aria-label={`${language.label} 代码编辑器`}>
           <div className="rain-editor-heading">
-            <div><p>方法体</p><h3><FileCode2 size={18} /> Java 代码</h3></div>
+            <div><p>{presentation.methodBodyLabel}</p><h3><FileCode2 size={18} /> {language.label} 代码</h3></div>
             <div className="rain-mode-switch" role="radiogroup" aria-label="代码填写方式">
               <button type="button" role="radio" aria-checked={mode === 'structured'} className={mode === 'structured' ? 'is-active' : ''} onClick={() => { setMode('structured'); clearFeedback() }}><ListTree size={14} />结构填写</button>
               <button type="button" role="radio" aria-checked={mode === 'free'} className={mode === 'free' ? 'is-active' : ''} onClick={() => { setMode('free'); clearFeedback() }}><PencilLine size={14} />自由编写</button>
@@ -539,6 +668,7 @@ export default function CodePractice({ challenge, onBack }: CodePracticeProps) {
           {mode === 'structured' ? (
             <StructuredEditor
               scaffold={scaffold}
+              languageLabel={language.label}
               draft={structuredDraft}
               issue={revealedIssue}
               onFieldRef={(slotId, field) => { slotFields.current[slotId] = field }}
@@ -555,7 +685,7 @@ export default function CodePractice({ challenge, onBack }: CodePracticeProps) {
                 value={freeCode}
                 height="510px"
                 theme={editorTheme}
-                extensions={[java()]}
+                extensions={[editorLanguageExtension(languageId)]}
                 onCreateEditor={(view) => { editorView.current = view }}
                 onChange={(value) => {
                   setFreeCode(value)
@@ -563,17 +693,17 @@ export default function CodePractice({ challenge, onBack }: CodePracticeProps) {
                   clearFeedback()
                 }}
                 basicSetup={{ lineNumbers: true, foldGutter: false, highlightActiveLine: true }}
-                aria-label="Java 方法体编辑器"
+                aria-label={`${language.label} 方法体编辑器`}
               />
-              <div className="rain-method-boundary">{scaffold.methodClose}</div>
+              {scaffold.methodClose && <div className="rain-method-boundary">{scaffold.methodClose}</div>}
             </div>
           )}
 
-          <div className={`rain-code-status ${!attempted ? 'is-neutral' : (revealedIssue || lastRun?.result.ok === false) ? 'is-error' : 'is-valid'}`} role="status">
-            {!attempted ? <Code2 size={16} /> : revealedIssue || lastRun?.result.ok === false ? <CircleAlert size={16} /> : <Check size={16} />}
+          <div className={`rain-code-status ${!attempted ? 'is-neutral' : (revealedIssue || lastRun?.result.ok === false || submission?.firstFailure) ? 'is-error' : 'is-valid'}`} role="status">
+            {!attempted ? <Code2 size={16} /> : revealedIssue || lastRun?.result.ok === false || submission?.firstFailure ? <CircleAlert size={16} /> : <Check size={16} />}
             <span>{!attempted
-              ? mode === 'structured' ? `固定作用域已锁定，待填写 ${scaffold.slots.length} 项语义` : '尚未运行当前草稿'
-              : revealedIssue?.message ?? lastRun?.result.message ?? '结构、语义与当前用例已通过'}</span>
+              ? mode === 'structured' ? `固定作用域已锁定，待填写 ${scaffold.slots.length} 项语义` : presentation.neutralFreeMessage
+              : revealedIssue?.message ?? lastRun?.result.message ?? submission?.firstFailure?.result.message ?? '结构、语义与当前用例已通过'}</span>
             {revealedIssue && <button type="button" onClick={() => focusSlot(revealedIssue.slotId)}>定位填写项</button>}
           </div>
 
@@ -584,12 +714,12 @@ export default function CodePractice({ challenge, onBack }: CodePracticeProps) {
             <button type="button" className="is-icon" onClick={resetCurrentMode} aria-label="重置当前模式" title="重置当前模式"><RotateCcw size={17} /></button>
           </div>
 
-          <div className="rain-case-strip"><span>输入</span><code>{JSON.stringify(selectedCase.input)}</code><span>期望</span><code>{selectedCase.expected} 格</code><b>公开</b></div>
+          <div className="rain-case-strip"><span>输入</span><code>{runtime.formatInput(selectedCase.input)}</code><span>期望</span><code>{runtime.formatOutput(selectedCase.expected)}</code><b>公开</b></div>
 
           {lastRun && (
             <div className={`rain-run-result ${lastRun.result.ok ? 'is-success' : 'is-failure'}`} role="status">
               {lastRun.result.ok ? <Check size={19} /> : <AlertTriangle size={19} />}
-              <div><strong>{lastRun.result.ok ? '当前用例通过' : diagnosticLabel[lastRun.result.kind as JavaDiagnostic['kind']]}</strong><p>{lastRun.result.message}</p></div>
+              <div><strong>{lastRun.result.ok ? '当前用例通过' : diagnosticLabel[lastRun.result.kind as CodePracticeDiagnostic['kind']]}</strong><p>{lastRun.result.message}</p></div>
               {lastRun.result.diagnostic && mode === 'free' && <button type="button" onClick={() => focusLine(lastRun.result.diagnostic!.line)}>第 {lastRun.result.diagnostic.line} 行</button>}
             </div>
           )}
@@ -597,14 +727,92 @@ export default function CodePractice({ challenge, onBack }: CodePracticeProps) {
           {submission && (
             <div className={`rain-submission-result ${submission.passed ? 'is-success' : 'is-failure'}`} role="status">
               {submission.passed ? <Check size={20} /> : <CircleAlert size={20} />}
-              <div>
-                <strong>{submission.passed ? '全部公开与隐藏用例通过' : '还有用例没有通过'}</strong>
-                <span>{submission.passedCount} / {submission.total}{submission.hiddenFailure ? ' · 隐藏用例未通过' : ''}</span>
+              <div className="rain-submission-content">
+                <div className="rain-submission-summary">
+                  <strong>{submission.passed ? '全部公开与隐藏用例通过' : '还有用例没有通过'}</strong>
+                  <span>{submission.passedCount} / {submission.total}</span>
+                </div>
+                {submission.firstFailure && (
+                  <section className="rain-failure-example" aria-label="当前卡住的用例">
+                    <header>
+                      <div>
+                        <strong>当前卡住的用例</strong>
+                        <span>第 {firstFailurePosition} 个用例 · {submission.firstFailure.testCase.label}</span>
+                      </div>
+                      <b>{submission.firstFailure.testCase.visibility === 'hidden' ? '隐藏 · 提交后揭示' : '公开'}</b>
+                    </header>
+                    <dl>
+                      <div className="is-wide">
+                        <dt>输入</dt>
+                        <dd><code>{runtime.formatInput(submission.firstFailure.testCase.input)}</code></dd>
+                      </div>
+                      <div>
+                        <dt>期望</dt>
+                        <dd><code>{runtime.formatOutput(submission.firstFailure.testCase.expected)}</code></dd>
+                      </div>
+                      <div>
+                        <dt>实际</dt>
+                        <dd>
+                          {submission.firstFailure.result.value === undefined
+                            ? '未产生返回值'
+                            : <code>{runtime.formatOutput(submission.firstFailure.result.value)}</code>}
+                        </dd>
+                      </div>
+                      <div className="is-wide">
+                        <dt>原因</dt>
+                        <dd>{submission.firstFailure.result.message}</dd>
+                      </div>
+                    </dl>
+                  </section>
+                )}
               </div>
             </div>
           )}
         </div>
       </div>
+      {showCompletion && submission?.passed && (
+        <ChallengeCompletion
+          passedCount={submission.passedCount}
+          total={submission.total}
+          onClose={() => setShowCompletion(false)}
+        />
+      )}
     </section>
+  )
+}
+
+export default function CodePractice<
+  ProgramAst,
+  TInput,
+  TOutput,
+  TSkill extends ChallengeSkillDefinition,
+  TBatch extends VerificationBatchBase,
+  TScene extends { target: string },
+>(props: CodePracticeProps<ProgramAst, TInput, TOutput, TSkill, TBatch, TScene>) {
+  const { challenge } = props
+  const [languageId, setLanguageId] = useState<CodeLanguageId>(() => {
+    if (typeof window === 'undefined') return challenge.languageId
+    const stored = window.localStorage.getItem(languageStorageKey(challenge.id))
+    return CODE_LANGUAGES.some((language) => language.id === stored)
+      ? stored as CodeLanguageId
+      : challenge.languageId
+  })
+  const translatedChallenge = useMemo(
+    () => createLanguageChallenge(challenge, languageId),
+    [challenge, languageId],
+  )
+
+  useEffect(() => {
+    window.localStorage.setItem(languageStorageKey(challenge.id), languageId)
+  }, [challenge.id, languageId])
+
+  return (
+    <CodePracticeSession
+      key={`${challenge.id}:${languageId}`}
+      {...props}
+      challenge={translatedChallenge}
+      languageId={languageId}
+      onLanguageChange={setLanguageId}
+    />
   )
 }

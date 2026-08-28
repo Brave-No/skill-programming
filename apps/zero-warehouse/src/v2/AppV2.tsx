@@ -4,6 +4,7 @@ import {
   ChevronRight,
   CircleAlert,
   CircleStop,
+  LayoutGrid,
   Pause,
   Play,
   PlayCircle,
@@ -25,7 +26,11 @@ import { CodePracticeV2 } from './codePractice/CodePracticeV2'
 type Phase = 'manual' | 'program' | 'code'
 type Playback = 'idle' | 'playing' | 'paused'
 
-export function AppV2() {
+interface AppV2Props {
+  onExit?: () => void
+}
+
+export function AppV2({ onExit }: AppV2Props) {
   const [phase, setPhase] = useState<Phase>(() => {
     if (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('stage') === 'code') {
       return 'code'
@@ -177,14 +182,14 @@ export function AppV2() {
   if (phase === 'manual') {
     return (
       <div className="app-shell manual-shell">
-        <AppHeaderV2 phase="手动校准" />
+        <AppHeaderV2 phase="手动校准" onExit={onExit} />
         <ManualStage onComplete={() => setPhase('program')} />
       </div>
     )
   }
 
   if (phase === 'code') {
-    return <CodePracticeV2 onBack={() => setPhase('program')} />
+    return <CodePracticeV2 onBack={() => setPhase('program')} onExit={onExit} />
   }
 
   const firstFailedIndex = failedBatches[0]
@@ -194,7 +199,7 @@ export function AppV2() {
 
   return (
     <div className="app-shell v2-app-shell">
-      <AppHeaderV2 phase="技能调试" />
+      <AppHeaderV2 phase="技能调试" onExit={onExit} />
       <main className="game-workspace v2-workspace page-enter">
         <section className="warehouse-pane">
           <div className="mission-header">
@@ -367,14 +372,22 @@ export function AppV2() {
   )
 }
 
-function AppHeaderV2({ phase }: { phase: string }) {
+function AppHeaderV2({ phase, onExit }: { phase: string; onExit?: () => void }) {
   return (
     <header className="app-header">
       <div className="brand-lockup">
         <span className="brand-mark" aria-hidden="true"><Warehouse size={21} /></span>
         <span className="brand-name">零号仓库</span>
       </div>
-      <div className="phase-chip"><span />{phase}</div>
+      <div className="app-header-actions">
+        {onExit && (
+          <button type="button" className="product-exit-command" onClick={onExit}>
+            <LayoutGrid size={17} />
+            挑战选择
+          </button>
+        )}
+        <div className="phase-chip"><span />{phase}</div>
+      </div>
     </header>
   )
 }

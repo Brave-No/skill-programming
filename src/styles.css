@@ -71,6 +71,33 @@ button:focus-visible {
   border-bottom: 5px solid #f0b83e;
 }
 
+.game-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.challenge-exit-command {
+  min-height: 38px;
+  padding: 0 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: #f8faf7;
+  background: transparent;
+  border: 1px solid #61706b;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.challenge-exit-command:hover {
+  color: #17211f;
+  background: #f0b83e;
+  border-color: #f0b83e;
+}
+
 .brand-block {
   display: flex;
   align-items: center;
@@ -1867,6 +1894,30 @@ button:focus-visible {
   gap: 16px;
 }
 
+.rain-language-picker {
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 9px;
+  color: #bdc9c4;
+  background: #101816;
+  border: 1px solid #61706b;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.rain-language-picker select {
+  min-width: 94px;
+  color: #f8faf7;
+  background: #17211f;
+  border: 0;
+  outline: 0;
+  font: inherit;
+  cursor: pointer;
+}
+
 .rain-draft-state {
   display: inline-flex;
   align-items: center;
@@ -2251,6 +2302,8 @@ button:focus-visible {
 
 .rain-structured-body .depth-1 { margin-left: 18px; }
 .rain-structured-body .depth-2 { margin-left: 36px; }
+.rain-structured-body .depth-3 { margin-left: 54px; }
+.rain-structured-body .depth-4 { margin-left: 72px; }
 
 .rain-locked-line,
 .rain-composite-line {
@@ -2473,6 +2526,14 @@ button:focus-visible {
   border-left: 5px solid #697773;
 }
 
+.rain-submission-result.is-failure {
+  align-items: flex-start;
+}
+
+.rain-submission-result > svg {
+  flex: 0 0 auto;
+}
+
 .rain-run-result.is-success,
 .rain-submission-result.is-success { border-left-color: #2f7b60; }
 .rain-run-result.is-failure,
@@ -2483,6 +2544,73 @@ button:focus-visible {
 .rain-submission-result strong { display: block; font-size: 11px; }
 .rain-run-result p,
 .rain-submission-result span { display: block; margin-top: 3px; color: #697773; font-size: 9px; line-height: 1.45; }
+
+.rain-submission-summary {
+  min-width: 0;
+}
+
+.rain-failure-example {
+  min-width: 0;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid #d5ddd9;
+}
+
+.rain-failure-example header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.rain-failure-example header > div {
+  min-width: 0;
+}
+
+.rain-failure-example header b {
+  flex: 0 0 auto;
+  padding: 3px 6px;
+  color: #7a3328;
+  background: #f7d9d3;
+  border-radius: 2px;
+  font-size: 9px;
+}
+
+.rain-failure-example dl {
+  margin: 9px 0 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 14px;
+}
+
+.rain-failure-example dl > div {
+  min-width: 0;
+}
+
+.rain-failure-example dl > div.is-wide {
+  grid-column: 1 / -1;
+}
+
+.rain-failure-example dt {
+  color: #697773;
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.rain-failure-example dd {
+  min-width: 0;
+  margin: 3px 0 0;
+  color: #25332f;
+  font-size: 10px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.rain-failure-example code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 
 @media (max-width: 980px) {
   .rain-code-workbench {
@@ -2519,6 +2647,18 @@ button:focus-visible {
   .brand-block h1 { font-size: 30px; }
   .brand-mark { width: 38px; height: 38px; }
   .header-metric { display: none; }
+
+  .game-header-actions {
+    gap: 8px;
+  }
+
+  .challenge-exit-command {
+    width: 40px;
+    min-height: 38px;
+    padding: 0;
+    justify-content: center;
+    font-size: 0;
+  }
 
   .stage-tabs {
     padding: 0 12px;
@@ -2594,6 +2734,7 @@ button:focus-visible {
   .rain-draft-state { display: none; }
   .rain-code-header-actions { gap: 0; }
   .rain-code-header-actions button { padding: 0 9px; }
+  .rain-language-picker { margin-right: 8px; }
 
   .rain-mobile-pane-switch {
     min-height: 48px;
@@ -2848,6 +2989,9 @@ button:focus-visible {
   .rain-code-header-actions button { width: 38px; padding: 0; }
   .rain-code-header-actions button svg { margin: 0; }
   .rain-code-header-actions button { font-size: 0; }
+  .rain-language-picker { padding: 0 6px; }
+  .rain-language-picker > span { display: none; }
+  .rain-language-picker select { min-width: 78px; }
 
   .rain-panel-heading h3,
   .rain-editor-heading h3 { font-size: 21px; }
@@ -2871,6 +3015,8 @@ button:focus-visible {
 
   .rain-structured-body .depth-1 { margin-left: 8px; }
   .rain-structured-body .depth-2 { margin-left: 16px; }
+  .rain-structured-body .depth-3 { margin-left: 24px; }
+  .rain-structured-body .depth-4 { margin-left: 32px; }
 
   .rain-composite-line {
     flex-wrap: wrap;
@@ -2923,7 +3069,20 @@ button:focus-visible {
   .rain-case-strip code:nth-of-type(2) {
     display: none;
   }
+
+  .rain-failure-example header {
+    align-items: flex-start;
+  }
+
+  .rain-failure-example dl {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .rain-failure-example dl > div.is-wide {
+    grid-column: auto;
+  }
 }
+
 
 @media (prefers-reduced-motion: reduce) {
   *,

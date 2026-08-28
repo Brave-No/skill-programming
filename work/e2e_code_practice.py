@@ -3,7 +3,7 @@ from pathlib import Path
 from playwright.sync_api import expect, sync_playwright
 
 
-BASE_URL = "http://127.0.0.1:5174/?stage=code"
+BASE_URL = "http://127.0.0.1:5174/games/rainline/?stage=code"
 OUTPUTS = Path(__file__).resolve().parents[1] / "outputs"
 
 CUSTOM_BODY = """int l = 0;
@@ -121,13 +121,25 @@ with sync_playwright() as playwright:
 
     desktop.get_by_role("button", name="运行当前用例").click()
     expect(desktop.locator(".rain-code-status")).to_contain_text("准备双端状态还没有填写")
+    desktop.get_by_role("button", name="提交全部用例").click()
+    expect(desktop.get_by_role("dialog", name="关卡通关")).to_have_count(0)
     assert desktop.evaluate("document.activeElement?.getAttribute('aria-label')") == "准备双端状态第 1 行"
 
     fill_structured_mode(desktop)
     desktop.get_by_role("button", name="运行当前用例").click()
     expect(desktop.get_by_text("当前用例通过", exact=True)).to_be_visible()
     desktop.get_by_role("button", name="提交全部用例").click()
-    expect(desktop.get_by_text("全部公开与隐藏用例通过", exact=True)).to_be_visible()
+    celebration = desktop.get_by_role("dialog", name="关卡通关")
+    expect(celebration).to_be_visible()
+    expect(celebration.get_by_text("结构、语义与真实用例全部通过", exact=True)).to_be_visible()
+    expect(celebration.get_by_label("10 / 10 个公开与隐藏用例通过")).to_be_visible()
+    celebration.get_by_role("button", name="重播通关动画").click()
+    expect(celebration).to_be_visible()
+    desktop.keyboard.press("Escape")
+    expect(desktop.get_by_role("dialog", name="关卡通关")).to_have_count(0)
+    expect(desktop.locator(".rain-submission-result")).to_contain_text("10 / 10")
+    desktop.get_by_role("button", name="提交全部用例").click()
+    expect(desktop.get_by_role("dialog", name="关卡通关")).to_have_count(0)
     expect(desktop.locator(".rain-submission-result")).to_contain_text("10 / 10")
     expect(desktop.locator(".rain-panel-heading > span")).to_have_text("12/12")
     desktop.screenshot(path=OUTPUTS / "rainline-code-structured-desktop.png", full_page=True)
@@ -135,18 +147,28 @@ with sync_playwright() as playwright:
     expect(desktop.get_by_text("草稿已保存", exact=True)).to_be_visible(timeout=2000)
     desktop.reload()
     desktop.wait_for_load_state("networkidle")
+    expect(desktop.get_by_role("dialog", name="关卡通关")).to_have_count(0)
     assert desktop.get_by_label("准备双端状态第 1 行").input_value() == "int l = 0"
 
     desktop.get_by_role("radio", name="自由编写").click()
     expect(desktop.locator(".rain-code-status")).to_contain_text("尚未运行")
     replace_editor_text(desktop, CUSTOM_BODY)
     desktop.get_by_role("button", name="提交全部用例").click()
-    expect(desktop.get_by_text("全部公开与隐藏用例通过", exact=True)).to_be_visible()
+    expect(desktop.get_by_role("dialog", name="关卡通关")).to_have_count(0)
+    expect(desktop.locator(".rain-submission-result")).to_contain_text("全部公开与隐藏用例通过")
 
     replace_editor_text(desktop, HIDDEN_FAILURE_BODY)
+    expect(desktop.locator(".rain-failure-example")).to_have_count(0)
     desktop.get_by_role("button", name="提交全部用例").click()
-    expect(desktop.locator(".rain-submission-result")).to_contain_text("隐藏用例未通过")
-    assert "[" not in desktop.locator(".rain-submission-result").inner_text()
+    failure_example = desktop.locator(".rain-failure-example")
+    expect(failure_example).to_have_count(1)
+    expect(failure_example).to_contain_text("当前卡住的用例")
+    expect(failure_example).to_contain_text("第 4 个用例")
+    expect(failure_example).to_contain_text("隐藏 · 提交后揭示")
+    expect(failure_example).to_contain_text("[]")
+    expect(failure_example).to_contain_text("0 格")
+    expect(failure_example).to_contain_text("1 格")
+    assert "[2]" not in failure_example.inner_text()
 
     desktop.get_by_role("button", name="重置当前模式").click()
     expect(desktop.locator(".cm-content")).to_have_text("")
@@ -158,7 +180,9 @@ with sync_playwright() as playwright:
     assert errors == [], errors
     desktop_context.close()
 
-    mobile_context = browser.new_context(viewport={"width": 390, "height": 844})
+    mobile_context = browser.new_context(
+        viewport={"width": 390, "height": 844}, reduced_motion="reduce"
+    )
     mobile = mobile_context.new_page()
     mobile.goto(BASE_URL)
     mobile.wait_for_load_state("networkidle")
@@ -171,9 +195,32 @@ with sync_playwright() as playwright:
     first_mobile.press_sequentially("int l = 0")
     assert first_mobile.input_value() == "int l = 0"
     assert_no_overflow(mobile, "mobile-editor")
+
+    mobile.get_by_role("radio", name="自由编写").click()
+    replace_editor_text(mobile, CUSTOM_BODY)
+    mobile.get_by_role("button", name="提交全部用例").click()
+    mobile_celebration = mobile.get_by_role("dialog", name="关卡通关")
+    expect(mobile_celebration).to_be_visible()
+    expect(mobile_celebration.get_by_label("10 / 10 个公开与隐藏用例通过")).to_be_visible()
+    assert mobile_celebration.locator(".sp-completion__verdict").evaluate(
+        "node => getComputedStyle(node).opacity"
+    ) == "1"
+    assert mobile_celebration.locator(".sp-completion__verdict").evaluate(
+        "node => getComputedStyle(node).animationName"
+    ) == "none"
+    assert_no_overflow(mobile, "mobile-completion")
+    mobile.screenshot(path=OUTPUTS / "rainline-completion-mobile-reduced.png")
+    mobile_celebration.get_by_role("button", name="跳过通关动画").click()
+    expect(mobile.locator(".rain-submission-result")).to_contain_text("10 / 10")
+
+    replace_editor_text(mobile, HIDDEN_FAILURE_BODY)
+    mobile.get_by_role("button", name="提交全部用例").click()
+    expect(mobile.get_by_role("dialog", name="关卡通关")).to_have_count(0)
+    expect(mobile.locator(".rain-failure-example")).to_contain_text("当前卡住的用例")
+    assert_no_overflow(mobile, "mobile-failure-example")
     mobile.screenshot(path=OUTPUTS / "rainline-code-structured-mobile.png", full_page=True)
     mobile_context.close()
 
     browser.close()
 
-print("RAINLINE_CODE_E2E_PASS structured free hidden drafts desktop mobile")
+print("RAINLINE_CODE_E2E_PASS completion structured free first-failure drafts desktop mobile reduced-motion")

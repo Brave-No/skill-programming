@@ -4,7 +4,7 @@ from pathlib import Path
 from playwright.sync_api import expect, sync_playwright
 
 
-BASE_URL = "http://127.0.0.1:5174"
+BASE_URL = "http://127.0.0.1:5174/games/rainline/"
 OUTPUTS = Path(__file__).resolve().parents[1] / "outputs"
 
 

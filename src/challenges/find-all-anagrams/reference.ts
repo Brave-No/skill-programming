@@ -1,0 +1,208 @@
+import type {
+  CodeMappingEntry,
+  LogicCodeStep,
+  StructuredScaffold,
+} from '../types'
+
+export const ANAGRAM_SCAFFOLD: StructuredScaffold = {
+  methodOpen: 'List<Integer> findAnagrams(String s, String p) {',
+  methodClose: '}',
+  slots: [
+    { id: 'preparation', label: '准备频谱状态', responsibility: '创建两份频谱、左边界和空结果列表。', lineCount: 4, conceptIds: ['target-counts', 'window-counts', 'left-index', 'result-indices'] },
+    { id: 'pattern-loop-init', label: '目标循环起点', responsibility: '建立从 0 开始的目标读头。', lineCount: 1, conceptIds: ['pattern-index'] },
+    { id: 'pattern-loop-condition', label: '目标循环条件', responsibility: '目标读头仍在 p 的范围内时继续。', lineCount: 1, conceptIds: ['pattern-string', 'pattern-index', 'pattern-boundary', 'string-length'] },
+    { id: 'pattern-loop-update', label: '目标读头前进', responsibility: '每轮目标计数后向右一步。', lineCount: 1, conceptIds: ['pattern-index'] },
+    { id: 'target-count', label: '累计目标字母', responsibility: '把 p 当前字母对应的目标频谱格加一。', lineCount: 1, conceptIds: ['pattern-string', 'pattern-index', 'target-counts', 'alphabet-offset', 'string-char-at'] },
+    { id: 'source-loop-init', label: '源串循环起点', responsibility: '建立从 0 开始的右探针。', lineCount: 1, conceptIds: ['right-index'] },
+    { id: 'source-loop-condition', label: '源串循环条件', responsibility: '右探针仍在 s 的范围内时继续。', lineCount: 1, conceptIds: ['source-string', 'right-index', 'source-boundary', 'string-length'] },
+    { id: 'source-loop-update', label: '右探针前进', responsibility: '每轮窗口处理完成后向右一步。', lineCount: 1, conceptIds: ['right-index'] },
+    { id: 'add-incoming', label: '纳入右侧字母', responsibility: '把 s 当前字母对应的窗口频谱格加一。', lineCount: 1, conceptIds: ['source-string', 'right-index', 'window-counts', 'alphabet-offset', 'incoming-count', 'string-char-at'] },
+    { id: 'overflow-condition', label: '判断窗口超宽', responsibility: '纳入后检查窗口宽度是否超过 p 的长度。', lineCount: 1, conceptIds: ['pattern-string', 'left-index', 'right-index', 'window-width', 'overflow-decision', 'string-length'] },
+    { id: 'remove-outgoing', label: '移出左侧字母', responsibility: '从窗口频谱扣除即将离开的 s 字母。', lineCount: 1, conceptIds: ['source-string', 'left-index', 'window-counts', 'alphabet-offset', 'outgoing-count', 'string-char-at'] },
+    { id: 'advance-left', label: '推进左边界', responsibility: '旧字母移出后让左边界前进一步。', lineCount: 1, conceptIds: ['left-index', 'left-advance'] },
+    { id: 'match-condition', label: '比较两份频谱', responsibility: '窗口宽度固定后逐格比较目标与窗口频谱。', lineCount: 1, conceptIds: ['target-counts', 'window-counts', 'window-width', 'frequency-equality', 'arrays-equals'] },
+    { id: 'record-index', label: '记录窗口起点', responsibility: '频谱一致时把左边界追加到结果列表。', lineCount: 1, conceptIds: ['left-index', 'result-indices', 'record-index', 'list-add'] },
+    { id: 'result', label: '返回命中列表', responsibility: '扫描结束后返回同一个结果列表。', lineCount: 1, conceptIds: ['result-indices'] },
+  ],
+  body: [
+    { kind: 'slot', depth: 1, slotId: 'preparation', suffix: ';' },
+    {
+      kind: 'composite', depth: 1, segments: [
+        { kind: 'fixed', value: 'for (' },
+        { kind: 'slot', slotId: 'pattern-loop-init' },
+        { kind: 'fixed', value: '; ' },
+        { kind: 'slot', slotId: 'pattern-loop-condition' },
+        { kind: 'fixed', value: '; ' },
+        { kind: 'slot', slotId: 'pattern-loop-update' },
+        { kind: 'fixed', value: ') {' },
+      ],
+    },
+    { kind: 'slot', depth: 2, slotId: 'target-count', suffix: ';' },
+    { kind: 'fixed', depth: 1, value: '}' },
+    {
+      kind: 'composite', depth: 1, segments: [
+        { kind: 'fixed', value: 'for (' },
+        { kind: 'slot', slotId: 'source-loop-init' },
+        { kind: 'fixed', value: '; ' },
+        { kind: 'slot', slotId: 'source-loop-condition' },
+        { kind: 'fixed', value: '; ' },
+        { kind: 'slot', slotId: 'source-loop-update' },
+        { kind: 'fixed', value: ') {' },
+      ],
+    },
+    { kind: 'slot', depth: 2, slotId: 'add-incoming', suffix: ';' },
+    {
+      kind: 'composite', depth: 2, segments: [
+        { kind: 'fixed', value: 'if (' },
+        { kind: 'slot', slotId: 'overflow-condition' },
+        { kind: 'fixed', value: ') {' },
+      ],
+    },
+    { kind: 'slot', depth: 2, slotId: 'remove-outgoing', suffix: ';' },
+    { kind: 'slot', depth: 2, slotId: 'advance-left', suffix: ';' },
+    { kind: 'fixed', depth: 2, value: '}' },
+    {
+      kind: 'composite', depth: 2, segments: [
+        { kind: 'fixed', value: 'if (' },
+        { kind: 'slot', slotId: 'match-condition' },
+        { kind: 'fixed', value: ') {' },
+      ],
+    },
+    { kind: 'slot', depth: 2, slotId: 'record-index', suffix: ';' },
+    { kind: 'fixed', depth: 2, value: '}' },
+    { kind: 'fixed', depth: 1, value: '}' },
+    {
+      kind: 'composite', depth: 1, segments: [
+        { kind: 'fixed', value: 'return ' },
+        { kind: 'slot', slotId: 'result' },
+        { kind: 'fixed', value: ';' },
+      ],
+    },
+  ],
+}
+
+export const ANAGRAM_REFERENCE_STEPS: LogicCodeStep[] = [
+  {
+    id: 'prepare', order: 1, stepLabel: '准备频谱台',
+    worldAction: '两份 26 格频谱归零，左夹具回到起点，命中纸带清空。',
+    logicPurpose: '建立滑动窗口持续维护的全部状态。', role: 'action', depth: 0, tone: 'yellow',
+    code: `int[] target = new int[26];\nint[] window = new int[26];\nint left = 0;\nList<Integer> result = new ArrayList<>();`,
+    semanticCheck: 'initialize', conceptIds: ['target-counts', 'window-counts', 'left-index', 'result-indices'],
+  },
+  {
+    id: 'scan-pattern-open', order: 2, stepLabel: '遍历目标信号',
+    worldAction: '目标读头从左到右经过 p 的每个字母。',
+    logicPurpose: '用循环构建目标频谱。', role: 'open-scope', depth: 0, tone: 'ink',
+    code: 'for (int i = 0; i < p.length(); i++) {', semanticCheck: 'patternLoop',
+    conceptIds: ['pattern-string', 'pattern-index', 'pattern-boundary', 'string-length'],
+  },
+  {
+    id: 'count-pattern', order: 3, stepLabel: '累计目标字母',
+    worldAction: '当前字母落入 0-25 号频谱格，对应高度加一。',
+    logicPurpose: '保存 p 中每个字母的完整出现次数。', role: 'action', depth: 1, tone: 'teal',
+    code: "target[p.charAt(i) - 'a']++;", semanticCheck: 'targetCount',
+    conceptIds: ['pattern-string', 'pattern-index', 'target-counts', 'alphabet-offset', 'string-char-at'],
+  },
+  {
+    id: 'scan-pattern-close', order: 4, stepLabel: '目标频谱完成',
+    worldAction: '读头到达目标卡末尾，固定目标频谱。',
+    logicPurpose: '闭合目标计数循环。', role: 'close-scope', depth: 0, tone: 'ink',
+    code: '}', semanticCheck: 'patternScope', conceptIds: ['pattern-boundary'],
+  },
+  {
+    id: 'scan-source-open', order: 5, stepLabel: '向右扫描源信号',
+    worldAction: '右探针从 0 号位置开始逐字前进。',
+    logicPurpose: '每轮扩展右侧并维护一个固定宽度窗口。', role: 'open-scope', depth: 0, tone: 'ink',
+    code: 'for (int right = 0; right < s.length(); right++) {', semanticCheck: 'sourceLoop',
+    conceptIds: ['source-string', 'right-index', 'source-boundary', 'string-length'],
+  },
+  {
+    id: 'add-incoming', order: 6, stepLabel: '纳入右侧字母',
+    worldAction: '右探针字母进入窗口，对应频谱格加一。',
+    logicPurpose: '先把本轮新字符计入当前窗口。', role: 'action', depth: 1, tone: 'coral',
+    code: "window[s.charAt(right) - 'a']++;", semanticCheck: 'addIncoming',
+    conceptIds: ['source-string', 'right-index', 'window-counts', 'alphabet-offset', 'incoming-count', 'string-char-at'],
+  },
+  {
+    id: 'if-overflow-open', order: 7, stepLabel: '如果窗口超宽',
+    worldAction: '窗口超过目标长度时启动左侧收缩。',
+    logicPurpose: '保证比较前窗口最多只有 p.length() 个字符。', role: 'open-scope', depth: 1, tone: 'steel',
+    code: 'if (right - left + 1 > p.length()) {', semanticCheck: 'overflowCondition',
+    conceptIds: ['pattern-string', 'left-index', 'right-index', 'window-width', 'overflow-decision', 'string-length'],
+  },
+  {
+    id: 'remove-outgoing', order: 8, stepLabel: '移出左侧字母',
+    worldAction: '先从窗口频谱扣除左夹具指向的旧字母。',
+    logicPurpose: '频谱必须在左边界移动前撤销旧位置。', role: 'action', depth: 2, tone: 'coral',
+    code: "window[s.charAt(left) - 'a']--;", semanticCheck: 'removeOutgoing',
+    conceptIds: ['source-string', 'left-index', 'window-counts', 'alphabet-offset', 'outgoing-count', 'string-char-at'],
+  },
+  {
+    id: 'advance-left', order: 9, stepLabel: '推进左侧夹具',
+    worldAction: '旧字母退出后，左夹具向右越过它。',
+    logicPurpose: '恢复固定窗口宽度并保持频谱与边界同步。', role: 'action', depth: 2, tone: 'steel',
+    code: 'left++;', semanticCheck: 'leftAdvance', conceptIds: ['left-index', 'left-advance'],
+  },
+  {
+    id: 'if-overflow-close', order: 10, stepLabel: '窗口恢复宽度',
+    worldAction: '收缩完成，关闭超宽处理。',
+    logicPurpose: '闭合窗口超宽判断作用域。', role: 'close-scope', depth: 1, tone: 'steel',
+    code: '}', semanticCheck: 'scopes', conceptIds: ['overflow-decision'],
+  },
+  {
+    id: 'if-match-open', order: 11, stepLabel: '如果频谱一致',
+    worldAction: '固定宽度窗口与目标频谱逐格对齐。',
+    logicPurpose: '只有完整字母频次相同时才记录答案。', role: 'open-scope', depth: 1, tone: 'teal',
+    code: 'if (Arrays.equals(target, window)) {', semanticCheck: 'matchCondition',
+    conceptIds: ['target-counts', 'window-counts', 'window-width', 'frequency-equality', 'arrays-equals'],
+  },
+  {
+    id: 'record-index', order: 12, stepLabel: '记录窗口起点',
+    worldAction: '命中纸带打印当前左夹具编号。',
+    logicPurpose: '按扫描顺序保存一个异位词窗口起点。', role: 'action', depth: 2, tone: 'yellow',
+    code: 'result.add(left);', semanticCheck: 'recordIndex',
+    conceptIds: ['left-index', 'result-indices', 'record-index', 'list-add'],
+  },
+  {
+    id: 'if-match-close', order: 13, stepLabel: '结束本轮窗口',
+    worldAction: '完成本轮匹配判断，右探针准备前进。',
+    logicPurpose: '闭合匹配判断和源串扫描作用域。', role: 'close-scope', depth: 0, tone: 'ink',
+    code: '}\n}', semanticCheck: 'scopes', conceptIds: ['frequency-equality', 'source-boundary'],
+  },
+  {
+    id: 'return-result', order: 14, stepLabel: '交付命中纸带',
+    worldAction: '源信号扫描结束，交付全部起点编号。',
+    logicPurpose: '返回同一个结果列表变量。', role: 'result', depth: 0, tone: 'yellow',
+    code: 'return result;', semanticCheck: 'returnResult', conceptIds: ['result-indices'],
+  },
+]
+
+export const composeAnagramReferenceBody = () =>
+  ANAGRAM_REFERENCE_STEPS.map((step) => step.code).join('\n')
+
+export const ANAGRAM_MAPPINGS: CodeMappingEntry[] = [
+  { id: 'source-string', category: 'scene', label: '源信号带', worldMeaning: '等待右探针扫描的完整输入字符串。', code: 'String s', conceptIds: ['source-string'] },
+  { id: 'pattern-string', category: 'scene', label: '目标信号卡', worldMeaning: '决定目标频谱与固定窗口长度。', code: 'String p', conceptIds: ['pattern-string'] },
+  { id: 'target-spectrum', category: 'scene', label: '目标频谱', worldMeaning: '记录 p 中 a-z 的完整出现次数。', code: 'int[] target', conceptIds: ['target-counts'] },
+  { id: 'window-spectrum', category: 'scene', label: '窗口频谱', worldMeaning: '记录当前左右夹具之间的字母次数。', code: 'int[] window', conceptIds: ['window-counts'] },
+  { id: 'left-index', category: 'scene', label: '左侧夹具', worldMeaning: '当前固定窗口起点，也是命中时要保存的编号。', code: 'left', conceptIds: ['left-index'] },
+  { id: 'right-index', category: 'scene', label: '右侧探针', worldMeaning: '本轮新纳入窗口的源串位置。', code: 'right', conceptIds: ['right-index'] },
+  { id: 'pattern-index', category: 'scene', label: '目标读头', worldMeaning: '依次读取目标卡每个字母的位置。', code: 'i', conceptIds: ['pattern-index'] },
+  { id: 'result-list', category: 'scene', label: '命中索引纸带', worldMeaning: '按顺序保存所有匹配窗口起点。', code: 'List<Integer> result', conceptIds: ['result-indices'] },
+  { id: 'add-incoming', category: 'skill', label: '纳入右侧字母', worldMeaning: '新字符进入窗口，对应频谱格加一。', code: "window[s.charAt(right) - 'a']++", conceptIds: ['incoming-count'] },
+  { id: 'remove-outgoing', category: 'skill', label: '移出左侧字母', worldMeaning: '收缩前先从频谱扣除旧字符。', code: "window[s.charAt(left) - 'a']--", conceptIds: ['outgoing-count'] },
+  { id: 'advance-left', category: 'skill', label: '推进左边界', worldMeaning: '旧字符移出后让窗口起点前进一步。', code: 'left++', conceptIds: ['left-advance'] },
+  { id: 'record-index', category: 'skill', label: '记录窗口起点', worldMeaning: '频谱匹配时保存当前左边界。', code: 'result.add(left)', conceptIds: ['record-index'] },
+  { id: 'for-loop', category: 'syntax', label: '顺序扫描', worldMeaning: '从 0 开始，在字符串范围内逐位前进。', code: 'for (int index = 0; index < text.length(); index++)', conceptIds: ['pattern-index', 'right-index', 'pattern-boundary', 'source-boundary'] },
+  { id: 'if-scope', category: 'syntax', label: '条件作用域', worldMeaning: '只有超宽或匹配条件成立时才执行内部动作。', code: 'if (condition) { ... }', conceptIds: ['overflow-decision', 'frequency-equality'] },
+  { id: 'window-width', category: 'syntax', label: '窗口宽度', worldMeaning: '左右两端都属于窗口，因此编号差需要加一。', code: 'right - left + 1', conceptIds: ['window-width'] },
+  { id: 'overflow-condition', category: 'syntax', label: '超宽判断', worldMeaning: '纳入字符后判断是否需要移出左侧旧字符。', code: 'right - left + 1 > p.length()', conceptIds: ['overflow-decision'] },
+  { id: 'match-condition', category: 'syntax', label: '匹配判断', worldMeaning: '完整比较目标频谱和固定窗口频谱。', code: 'Arrays.equals(target, window)', conceptIds: ['frequency-equality'] },
+  { id: 'return-result', category: 'syntax', label: '返回命中列表', worldMeaning: '扫描完成后交付按升序保存的全部起点。', code: 'return result', conceptIds: ['result-indices'] },
+  { id: 'string-length', category: 'api', label: '字符串长度', worldMeaning: '控制扫描边界和固定窗口宽度。', code: 'text.length()', conceptIds: ['string-length'] },
+  { id: 'string-char-at', category: 'api', label: '读取指定字符', worldMeaning: '按目标读头、右探针或左夹具位置读取字母。', code: 'text.charAt(index)', conceptIds: ['string-char-at', 'alphabet-offset'] },
+  { id: 'alphabet-offset', category: 'api', label: '映射频谱格', worldMeaning: '小写字母减去 a，得到 0-25 的数组下标。', code: "character - 'a'", conceptIds: ['alphabet-offset'] },
+  { id: 'new-count-array', category: 'api', label: '新建频次数组', worldMeaning: '创建 26 个初值为 0 的整数格。', code: 'new int[26]', conceptIds: ['target-counts', 'window-counts'] },
+  { id: 'arrays-equals', category: 'api', label: '比较两份数组', worldMeaning: '逐格比较两个 26 项频谱是否完全一致。', code: 'Arrays.equals(target, window)', conceptIds: ['arrays-equals', 'frequency-equality'] },
+  { id: 'list-add', category: 'api', label: '追加结果', worldMeaning: '把一个新的匹配起点放到结果列表末尾。', code: 'result.add(left)', conceptIds: ['list-add', 'result-indices'] },
+]

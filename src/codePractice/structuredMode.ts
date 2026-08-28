@@ -1,13 +1,11 @@
 import type {
   AlgorithmChallenge,
+  ChallengeSkillDefinition,
+  CodePracticeDiagnostic,
   SemanticResult,
   StructuredScaffold,
+  VerificationBatchBase,
 } from '../challenges/types'
-import {
-  parseJavaSubset,
-  type JavaDiagnostic,
-  type JavaProgram,
-} from './javaSubset'
 
 export type StructuredDraft = Record<string, string>
 
@@ -29,8 +27,8 @@ export interface StructuredIssue {
   message: string
 }
 
-export type StructuredValidation =
-  | { kind: 'valid'; program: JavaProgram; semantic: SemanticResult }
+export type StructuredValidation<ProgramAst> =
+  | { kind: 'valid'; program: ProgramAst; semantic: SemanticResult }
   | { kind: 'invalid'; issue: StructuredIssue }
 
 export const createEmptyStructuredDraft = (scaffold: StructuredScaffold): StructuredDraft =>
@@ -100,9 +98,9 @@ export const composeStructuredBody = (
   return { source: lines.join('\n'), ranges }
 }
 
-const diagnosticFrom = (error: unknown): JavaDiagnostic => {
+const diagnosticFrom = (error: unknown): CodePracticeDiagnostic => {
   if (error && typeof error === 'object' && 'diagnostic' in error) {
-    const diagnostic = (error as { diagnostic?: JavaDiagnostic }).diagnostic
+    const diagnostic = (error as { diagnostic?: CodePracticeDiagnostic }).diagnostic
     if (diagnostic) return diagnostic
   }
   return { kind: 'syntax', message: '代码无法解析。', line: 1, column: 1 }
@@ -111,7 +109,7 @@ const diagnosticFrom = (error: unknown): JavaDiagnostic => {
 export const slotForDiagnostic = (
   scaffold: StructuredScaffold,
   composition: StructuredComposition,
-  diagnostic: Pick<JavaDiagnostic, 'line' | 'column'>,
+  diagnostic: Pick<CodePracticeDiagnostic, 'line' | 'column'>,
 ) => {
   const entries = scaffold.slots.map((slot) => ({
     slotId: slot.id,
@@ -139,26 +137,18 @@ export const slotForDiagnostic = (
     })[0]?.slotId ?? scaffold.slots[0].id
 }
 
-const slotForCheck: Record<string, string> = {
-  deploy: 'preparation',
-  patrol: 'loop-condition',
-  compare: 'shore-condition',
-  leftAdvance: 'left-advance',
-  leftUpdateMax: 'left-update-max',
-  leftCollect: 'left-collect',
-  alternate: 'shore-condition',
-  rightAdvance: 'right-advance',
-  rightUpdateMax: 'right-update-max',
-  rightCollect: 'right-collect',
-  scopes: 'shore-condition',
-  return: 'result',
-}
-
-export const validateStructuredDraft = (
-  challenge: AlgorithmChallenge<JavaProgram>,
+export const validateStructuredDraft = <
+  ProgramAst,
+  TInput,
+  TOutput,
+  TSkill extends ChallengeSkillDefinition,
+  TBatch extends VerificationBatchBase,
+  TScene extends { target: string },
+>(
+  challenge: AlgorithmChallenge<ProgramAst, TInput, TOutput, TSkill, TBatch, TScene>,
   draft: StructuredDraft,
   composition = composeStructuredBody(challenge.codePractice.scaffold, draft),
-): StructuredValidation => {
+): StructuredValidation<ProgramAst> => {
   const missing = challenge.codePractice.scaffold.slots.find((slot) => !draft[slot.id]?.trim())
   if (missing) {
     return {
@@ -171,9 +161,9 @@ export const validateStructuredDraft = (
     }
   }
 
-  let program: JavaProgram
+  let program: ProgramAst
   try {
-    program = parseJavaSubset(composition.source)
+    program = challenge.codePractice.runtime.parse(composition.source)
   } catch (error) {
     const diagnostic = diagnosticFrom(error)
     return {
@@ -192,7 +182,8 @@ export const validateStructuredDraft = (
       kind: 'invalid',
       issue: {
         kind: 'semantic',
-        slotId: slotForCheck[semantic.issue.check] ?? challenge.codePractice.scaffold.slots[0].id,
+        slotId: challenge.codePractice.checkToSlot[semantic.issue.check]
+          ?? challenge.codePractice.scaffold.slots[0].id,
         message: semantic.issue.message,
       },
     }

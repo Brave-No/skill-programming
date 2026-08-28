@@ -107,9 +107,13 @@ describe('rain water Java practice', () => {
   })
 
   it('keeps unsupported syntax explicit and stops infinite patrols', () => {
-    expect(runJavaSubset('for (;;) { } return 0;', [], 0)).toMatchObject({
+    expect(runJavaSubset('switch (0) { } return 0;', [], 0)).toMatchObject({
       ok: false,
       kind: 'unsupported',
+    })
+    expect(runJavaSubset('for (;;) { } return 0;', [], 0)).toMatchObject({
+      ok: false,
+      kind: 'timeout',
     })
     expect(runJavaSubset('while (true) { } return 0;', [], 0)).toMatchObject({
       ok: false,
@@ -142,6 +146,40 @@ describe('rain water Java practice', () => {
     expect(validation).toMatchObject({
       kind: 'invalid',
       issue: { kind: 'required', slotId: 'right-advance' },
+    })
+  })
+})
+
+describe('integer Map Java subset', () => {
+  const source = `Map<Integer, Integer> counts = new HashMap<>();
+counts.put(0, 1);
+int index = 0;
+int prefix = 0;
+int answer = 0;
+while (index < nums.length) {
+  prefix += nums[index];
+  answer += counts.getOrDefault(prefix - k, 0);
+  counts.put(prefix, counts.getOrDefault(prefix, 0) + 1);
+  index++;
+}
+return answer;`
+
+  it('parses and executes HashMap put/getOrDefault with named method inputs', () => {
+    const program = parseJavaSubset(source)
+    expect(program.statements[0]).toMatchObject({ type: 'declaration', valueType: 'map' })
+    expect(program.statements[1]).toMatchObject({ type: 'expression' })
+    expect(runJavaSubset(source, { nums: [1, 1, 1], k: 2 }, 2)).toMatchObject({ ok: true })
+    expect(runJavaSubset(source, { nums: [1, -1, 0], k: 0 }, 3)).toMatchObject({ ok: true })
+  })
+
+  it('keeps unsupported collection APIs explicit', () => {
+    const unsupported = source.replace(
+      'counts.getOrDefault(prefix - k, 0)',
+      'counts.get(prefix - k)',
+    )
+    expect(runJavaSubset(unsupported, { nums: [1], k: 1 }, 1)).toMatchObject({
+      ok: false,
+      kind: 'unsupported',
     })
   })
 })

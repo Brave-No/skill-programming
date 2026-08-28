@@ -1,4 +1,4 @@
-import type { SkillDefinition, SkillType } from '../game/model'
+import type { CodeLanguageId } from '../codePractice/languages'
 
 export interface StrategyDefinition {
   id: string
@@ -29,7 +29,8 @@ export interface AlgorithmConceptDefinition {
   }
   links: {
     sceneIds: string[]
-    skillIds: SkillType[]
+    // A concept may be expanded inside a core skill or live only in trace/code artifacts.
+    skillIds: string[]
     traceFields: string[]
     referenceStepIds: string[]
     mappingEntryIds: string[]
@@ -38,9 +39,12 @@ export interface AlgorithmConceptDefinition {
   }
 }
 
-export interface VerificationBatch {
+export interface VerificationBatchBase {
   id: string
   name: string
+}
+
+export interface VerificationBatch extends VerificationBatchBase {
   terrain: number[]
   expectedTotal: number
 }
@@ -51,12 +55,64 @@ export interface SkillProgramContract {
   allowDirectSuiteValidation: true
 }
 
-export interface CodePracticeCase {
+export interface CodePracticeCase<TInput = number[], TOutput = number> {
   id: string
   label: string
-  input: number[]
-  expected: number
+  input: TInput
+  expected: TOutput
   visibility: 'public' | 'hidden'
+}
+
+export interface CodePracticeDiagnostic {
+  kind: 'syntax' | 'unsupported' | 'runtime' | 'timeout' | 'output'
+  message: string
+  line: number
+  column: number
+}
+
+export interface CodePracticeRunResult<TOutput> {
+  ok: boolean
+  kind: 'success' | CodePracticeDiagnostic['kind']
+  message: string
+  value?: TOutput
+  expected?: TOutput
+  diagnostic?: CodePracticeDiagnostic
+  steps: number
+}
+
+export interface CodePracticeRuntime<ProgramAst, TInput, TOutput> {
+  parse: (source: string) => ProgramAst
+  run: (source: string, input: TInput, expected?: TOutput) => CodePracticeRunResult<TOutput>
+  formatInput: (input: TInput) => string
+  formatOutput: (output: TOutput | undefined) => string
+}
+
+export interface CodePracticePresentation {
+  eyebrow: string
+  title: string
+  methodBodyLabel: string
+  dictionaryApiLabel: string
+  neutralFreeMessage: string
+  semanticFallback: string
+}
+
+export interface CodePracticeDraftStorage {
+  legacyKeys?: {
+    free?: string
+    structured?: string
+    mode?: string
+  }
+}
+
+export interface ChallengeSkillDefinition {
+  type: string
+  label: string
+  shortLabel: string
+  description: string
+  tone: LogicStepTone
+  createsScope: boolean
+  // One player-facing core skill may group several implementation-level concepts.
+  conceptIds: string[]
 }
 
 export type LogicStepTone = 'yellow' | 'ink' | 'teal' | 'coral' | 'steel'
@@ -65,7 +121,8 @@ export type LogicStepRole = 'action' | 'open-scope' | 'branch' | 'close-scope' |
 export interface LogicCodeStep {
   id: string
   order: number
-  skillLabel: string
+  // Reference steps can be finer-grained than the player-facing skill library.
+  stepLabel: string
   worldAction: string
   logicPurpose: string
   role: LogicStepRole
@@ -94,11 +151,11 @@ export interface StructuredSlotDefinition {
 }
 
 export type StructuredScaffoldNode =
-  | { kind: 'fixed'; depth: 0 | 1 | 2; value: string }
-  | { kind: 'slot'; depth: 0 | 1 | 2; slotId: string; suffix?: string }
+  | { kind: 'fixed'; depth: number; value: string }
+  | { kind: 'slot'; depth: number; slotId: string; suffix?: string }
   | {
       kind: 'composite'
-      depth: 0 | 1 | 2
+      depth: number
       segments: Array<{ kind: 'fixed'; value: string } | { kind: 'slot'; slotId: string }>
     }
 
@@ -120,30 +177,38 @@ export interface SemanticResult {
   issue?: SemanticIssue
 }
 
-export interface AlgorithmChallenge<ProgramAst> {
+export interface AlgorithmChallenge<
+  ProgramAst,
+  TInput = number[],
+  TOutput = number,
+  TSkill extends ChallengeSkillDefinition = ChallengeSkillDefinition,
+  TBatch extends VerificationBatchBase = VerificationBatch,
+  TScene extends { target: string } = { observeTerrain: number[]; target: string },
+> {
   id: string
   title: string
   strategy: StrategyDefinition
-  languageId: 'java'
+  languageId: CodeLanguageId
   concepts: AlgorithmConceptDefinition[]
-  scene: {
-    observeTerrain: number[]
-    target: string
-  }
+  scene: TScene
   manualStage: {
     prompt: string
   }
-  skills: SkillDefinition[]
+  skills: TSkill[]
   automationStage: {
     programContract: SkillProgramContract
-    verificationBatches: VerificationBatch[]
+    verificationBatches: TBatch[]
   }
   codePractice: {
     methodSignature: string
     scaffold: StructuredScaffold
     referenceSteps: LogicCodeStep[]
     mappings: CodeMappingEntry[]
-    cases: CodePracticeCase[]
+    cases: CodePracticeCase<TInput, TOutput>[]
+    runtime: CodePracticeRuntime<ProgramAst, TInput, TOutput>
+    presentation: CodePracticePresentation
+    checkToSlot: Record<string, string>
+    draftStorage?: CodePracticeDraftStorage
   }
   validate: (program: ProgramAst) => SemanticResult
 }

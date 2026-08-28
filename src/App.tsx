@@ -4,6 +4,7 @@ import {
   ChevronRight,
   CircleAlert,
   Gauge,
+  LayoutGrid,
   Pause,
   Play,
   PlayCircle,
@@ -26,7 +27,11 @@ import {
 
 type Stage = 'observe' | 'program' | 'code'
 
-const CodePractice = lazy(() => import('./components/CodePractice'))
+interface AppProps {
+  onExit?: () => void
+}
+
+const CodePractice = lazy(() => import('./components/CodePractice')) as unknown as typeof import('./components/CodePractice').default
 
 const OBSERVE_TERRAIN = RAIN_WATER_CHALLENGE.scene.observeTerrain
 const BATCHES = RAIN_WATER_CHALLENGE.automationStage.verificationBatches
@@ -52,7 +57,7 @@ const blankFrame = (terrain: number[]): TraceFrame => ({
   status: 'idle',
 })
 
-export default function App() {
+export default function App({ onExit }: AppProps) {
   const observeWater = useMemo(() => calculateWater(OBSERVE_TERRAIN), [])
   const expectedObserveIndices = useMemo(
     () => new Set(observeWater.flatMap((depth, index) => (depth > 0 ? [index] : []))),
@@ -212,7 +217,7 @@ export default function App() {
     return (
       <main className="app-shell">
         <Suspense fallback={<div className="rain-code-loading" role="status">正在启动 Java 工作台…</div>}>
-          <CodePractice challenge={RAIN_WATER_CHALLENGE} onBack={returnToProgram} />
+          <CodePractice challenge={RAIN_WATER_CHALLENGE} onBack={returnToProgram} onExit={onExit} />
         </Suspense>
       </main>
     )
@@ -228,10 +233,18 @@ export default function App() {
             <h1>{RAIN_WATER_CHALLENGE.title}</h1>
           </div>
         </div>
-        <div className="header-metric">
-          <Gauge size={18} />
-          <span>目标</span>
-          <strong>{RAIN_WATER_CHALLENGE.scene.target}</strong>
+        <div className="game-header-actions">
+          {onExit && (
+            <button type="button" className="challenge-exit-command" onClick={onExit}>
+              <LayoutGrid size={17} />
+              挑战选择
+            </button>
+          )}
+          <div className="header-metric">
+            <Gauge size={18} />
+            <span>目标</span>
+            <strong>{RAIN_WATER_CHALLENGE.scene.target}</strong>
+          </div>
         </div>
       </header>
 

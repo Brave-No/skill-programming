@@ -70,6 +70,7 @@ button:disabled {
 }
 
 .brand-lockup,
+.app-header-actions,
 .phase-chip,
 .runtime-controls,
 .manual-actions,
@@ -83,6 +84,31 @@ button:disabled {
 
 .brand-lockup {
   gap: 10px;
+}
+
+.app-header-actions {
+  gap: 14px;
+}
+
+.product-exit-command {
+  min-height: 36px;
+  padding: 0 11px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--ink-soft);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.product-exit-command:hover {
+  color: var(--ink);
+  background: var(--surface);
+  border-color: var(--ink);
 }
 
 .brand-mark {
@@ -1115,6 +1141,18 @@ button:disabled {
     font-size: 22px;
   }
 
+  .app-header-actions {
+    gap: 8px;
+  }
+
+  .product-exit-command {
+    width: 36px;
+    min-height: 34px;
+    padding: 0;
+    justify-content: center;
+    font-size: 0;
+  }
+
   .manual-stage {
     width: min(100% - 28px, 620px);
     min-height: calc(100vh - 58px);
@@ -1881,6 +1919,31 @@ button:disabled {
 .code-practice-header-actions {
   flex: 0 0 auto;
   gap: 13px;
+}
+
+.code-language-picker {
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  color: var(--ink-soft);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.code-language-picker select {
+  min-width: 94px;
+  color: var(--ink);
+  background: var(--paper);
+  border: 0;
+  outline: 0;
+  font: inherit;
+  cursor: pointer;
 }
 
 .code-draft-status {
@@ -2904,6 +2967,19 @@ button:disabled {
 
   .code-practice-header-actions {
     gap: 7px;
+  }
+
+  .code-language-picker {
+    min-height: 35px;
+    padding: 0 7px;
+  }
+
+  .code-language-picker > span {
+    display: none;
+  }
+
+  .code-language-picker select {
+    min-width: 78px;
   }
 
   .code-draft-status {

@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import CodeMirror from '@uiw/react-codemirror'
+import { cpp } from '@codemirror/lang-cpp'
 import { java } from '@codemirror/lang-java'
+import { javascript } from '@codemirror/lang-javascript'
+import { python } from '@codemirror/lang-python'
 import { EditorView } from '@codemirror/view'
 import {
   AlertTriangle,
@@ -12,6 +15,7 @@ import {
   Copy,
   FileCode2,
   ListTree,
+  LayoutGrid,
   PencilLine,
   Play,
   RotateCcw,
@@ -26,6 +30,10 @@ import {
   EMPTY_JAVA_BODY,
   type CodeMappingEntry,
 } from './mappings'
+import {
+  CODE_LANGUAGES,
+  type CodeLanguageId,
+} from '../../../../../src/codePractice/languages'
 import { CODE_PRACTICE_CASES, PUBLIC_CODE_PRACTICE_CASES, type CodePracticeCase } from './cases'
 import { parseJavaSubset, runJavaSubset, type JavaDiagnostic, type JavaRunResult } from './javaSubset'
 import {
@@ -45,10 +53,24 @@ import {
   type StructuredSlotId,
   type StructuredSlotIssue,
 } from './structuredMode'
+import { createMoveZeroesLanguagePractice } from './languages'
+import { ChallengeCompletion } from '../../../../../src/shared/completion'
 
-const FREE_DRAFT_KEY = 'zero-warehouse:v2:java-code-draft:v2'
-const STRUCTURED_DRAFT_KEY = 'zero-warehouse:v2:java-structured-draft:v1'
-const MODE_KEY = 'zero-warehouse:v2:java-code-mode:v1'
+const COMPLETION_KEY = 'zero-warehouse:v2:completion:v1'
+const LANGUAGE_KEY = 'zero-warehouse:v2:code-language:v1'
+
+const storageKeys = (languageId: CodeLanguageId) => ({
+  free: `zero-warehouse:v2:${languageId}-code-draft:v2`,
+  structured: `zero-warehouse:v2:${languageId}-structured-draft:v1`,
+  mode: `zero-warehouse:v2:${languageId}-code-mode:v1`,
+})
+
+const editorLanguageExtension = (languageId: CodeLanguageId) => {
+  if (languageId === 'cpp') return cpp()
+  if (languageId === 'python') return python()
+  if (languageId === 'javascript') return javascript()
+  return java()
+}
 
 type PracticeMode = 'structured' | 'free'
 type SlotField = HTMLInputElement | HTMLTextAreaElement
@@ -135,11 +157,13 @@ const copyText = async (value: string) => {
 
 export interface CodePracticeV2Props {
   onBack: () => void
+  onExit?: () => void
 }
 
-const SLOT_DEFINITION_BY_ID = Object.fromEntries(
-  STRUCTURED_SLOT_DEFINITIONS.map((definition) => [definition.id, definition]),
-) as Record<StructuredSlotId, (typeof STRUCTURED_SLOT_DEFINITIONS)[number]>
+interface CodePracticeV2SessionProps extends CodePracticeV2Props {
+  languageId: CodeLanguageId
+  onLanguageChange: (languageId: CodeLanguageId) => void
+}
 
 const statementParts = (value: string, count: number) => {
   const parts = value
@@ -152,19 +176,33 @@ const statementParts = (value: string, count: number) => {
 
 interface StructuredEditorProps {
   draft: StructuredDraft
+  languageLabel: string
+  scaffold: typeof STRUCTURED_SCAFFOLD
+  slotDefinitions: typeof STRUCTURED_SLOT_DEFINITIONS
   issue?: StructuredSlotIssue
   onChange: (slotId: StructuredSlotId, value: string) => void
   onFieldRef: (slotId: StructuredSlotId, field: SlotField | null) => void
 }
 
-function StructuredEditor({ draft, issue, onChange, onFieldRef }: StructuredEditorProps) {
+function StructuredEditor({
+  draft,
+  languageLabel,
+  scaffold,
+  slotDefinitions,
+  issue,
+  onChange,
+  onFieldRef,
+}: StructuredEditorProps) {
+  const slotDefinitionById = Object.fromEntries(
+    slotDefinitions.map((definition) => [definition.id, definition]),
+  ) as Partial<Record<StructuredSlotId, (typeof slotDefinitions)[number]>>
   const renderStatementGroup = (
     slotId: StructuredSlotId,
     count: number,
     depth: 0 | 1 | 2,
     statementTerminator: string,
   ) => {
-    const definition = SLOT_DEFINITION_BY_ID[slotId]
+    const definition = slotDefinitionById[slotId]!
     const parts = statementParts(draft[slotId], count)
     const invalid = issue?.slotId === slotId
     return (
@@ -200,7 +238,7 @@ function StructuredEditor({ draft, issue, onChange, onFieldRef }: StructuredEdit
   }
 
   const renderInlineSlot = (slotId: StructuredSlotId) => {
-    const definition = SLOT_DEFINITION_BY_ID[slotId]
+    const definition = slotDefinitionById[slotId]!
     const invalid = issue?.slotId === slotId
     return (
       <label className={`structured-inline-slot ${invalid ? 'is-invalid' : ''}`} data-slot-id={slotId}>
@@ -220,10 +258,10 @@ function StructuredEditor({ draft, issue, onChange, onFieldRef }: StructuredEdit
   }
 
   return (
-    <div className="structured-code-frame" aria-label="Java 结构填写编辑器">
-      <div className="code-method-signature">{STRUCTURED_SCAFFOLD.methodOpen}</div>
+    <div className="structured-code-frame" aria-label={`${languageLabel} 结构填写编辑器`}>
+      <div className="code-method-signature">{scaffold.methodOpen}</div>
       <div className="structured-method-body">
-        {STRUCTURED_SCAFFOLD.body.map((node) => {
+        {scaffold.body.map((node) => {
           if (node.kind === 'blank') {
             return <div key={node.id} className="structured-blank-line" aria-hidden="true" />
           }
@@ -256,28 +294,39 @@ function StructuredEditor({ draft, issue, onChange, onFieldRef }: StructuredEdit
           )
         })}
       </div>
-      <div className="code-method-signature code-method-close">{STRUCTURED_SCAFFOLD.methodClose}</div>
+      {scaffold.methodClose && <div className="code-method-signature code-method-close">{scaffold.methodClose}</div>}
     </div>
   )
 }
 
-export function CodePracticeV2({ onBack }: CodePracticeV2Props) {
+function CodePracticeV2Session({
+  onBack,
+  onExit,
+  languageId,
+  onLanguageChange,
+}: CodePracticeV2SessionProps) {
+  const practice = useMemo(() => createMoveZeroesLanguagePractice(languageId), [languageId])
+  const keys = useMemo(() => storageKeys(languageId), [languageId])
   const [mode, setMode] = useState<PracticeMode>(() => {
     if (typeof window === 'undefined') return 'structured'
-    return window.localStorage.getItem(MODE_KEY) === 'free' ? 'free' : 'structured'
+    return window.localStorage.getItem(storageKeys(languageId).mode) === 'free' ? 'free' : 'structured'
   })
   const [freeCode, setFreeCode] = useState(() => {
     if (typeof window === 'undefined') return EMPTY_JAVA_BODY
-    return window.localStorage.getItem(FREE_DRAFT_KEY) ?? EMPTY_JAVA_BODY
+    return window.localStorage.getItem(storageKeys(languageId).free) ?? EMPTY_JAVA_BODY
   })
   const [structuredDraft, setStructuredDraft] = useState<StructuredDraft>(() => {
     if (typeof window === 'undefined') return createEmptyStructuredDraft()
-    return restoreStructuredDraft(window.localStorage.getItem(STRUCTURED_DRAFT_KEY))
+    return restoreStructuredDraft(window.localStorage.getItem(storageKeys(languageId).structured))
   })
-  const [selectedMappingId, setSelectedMappingId] = useState(JAVA_MAPPING_ENTRIES[0].id)
+  const [selectedMappingId, setSelectedMappingId] = useState(practice.mappings[0].id)
   const [selectedCaseId, setSelectedCaseId] = useState(PUBLIC_CODE_PRACTICE_CASES[0].id)
   const [lastRun, setLastRun] = useState<CaseRun | null>(null)
   const [submission, setSubmission] = useState<SubmissionState | null>(null)
+  const [hasCompleted, setHasCompleted] = useState(() => (
+    typeof window !== 'undefined' && window.localStorage.getItem(COMPLETION_KEY) !== null
+  ))
+  const [showCompletion, setShowCompletion] = useState(false)
   const [draftSaved, setDraftSaved] = useState(true)
   const [referenceTab, setReferenceTab] = useState<'logic' | 'dictionary'>('logic')
   const [mobilePane, setMobilePane] = useState<'reference' | 'editor'>('reference')
@@ -287,13 +336,24 @@ export function CodePracticeV2({ onBack }: CodePracticeV2Props) {
   const slotFields = useRef<Partial<Record<StructuredSlotId, SlotField | null>>>({})
   const copyTimer = useRef<number | null>(null)
 
-  const structuredComposition = useMemo(() => composeStructuredBody(structuredDraft), [structuredDraft])
+  const structuredComposition = useMemo(
+    () => composeStructuredBody(structuredDraft, practice.scaffold),
+    [practice.scaffold, structuredDraft],
+  )
   const structuredValidation = useMemo(
-    () => validateStructuredDraft(structuredDraft, structuredComposition),
-    [structuredDraft, structuredComposition],
+    () => validateStructuredDraft(structuredDraft, structuredComposition, {
+      normalizeSource: practice.normalize,
+      requiredSlotIds: practice.requiredSlotIds,
+      issueSlotAliases: practice.issueSlotAliases,
+    }),
+    [practice, structuredDraft, structuredComposition],
   )
   const activeCode = mode === 'structured' ? structuredComposition.source : freeCode
-  const logicProgress = useMemo(() => analyzeLogicStepProgress(activeCode), [activeCode])
+  const normalizedActiveCode = useMemo(() => practice.normalize(activeCode), [activeCode, practice])
+  const logicProgress = useMemo(
+    () => analyzeLogicStepProgress(normalizedActiveCode, JAVA_LOGIC_REFERENCE),
+    [normalizedActiveCode],
+  )
   const parseState = useMemo<ParseState>(() => {
     if (mode === 'structured') {
       if (structuredValidation.kind === 'invalid') {
@@ -311,40 +371,55 @@ export function CodePracticeV2({ onBack }: CodePracticeV2Props) {
     }
     if (!freeCode.trim()) return { kind: 'empty' }
     try {
-      parseJavaSubset(freeCode)
+      parseJavaSubset(practice.normalize(freeCode))
       return { kind: 'valid' }
     } catch (error) {
       const diagnostic = diagnosticFrom(error)
       return { kind: 'invalid', message: diagnostic.message, diagnostic }
     }
-  }, [freeCode, mode, revealedSlotIssue, structuredValidation])
-  const selectedMapping = JAVA_MAPPING_ENTRIES.find((entry) => entry.id === selectedMappingId) ?? JAVA_MAPPING_ENTRIES[0]
+  }, [freeCode, mode, practice, revealedSlotIssue, structuredValidation])
+  const selectedMapping = practice.mappings.find((entry) => entry.id === selectedMappingId) ?? practice.mappings[0]
   const selectedCase = PUBLIC_CODE_PRACTICE_CASES.find((testCase) => testCase.id === selectedCaseId) ?? PUBLIC_CODE_PRACTICE_CASES[0]
   const writtenStepCount = [...logicProgress.values()].filter(Boolean).length
+  const slotDefinitionById = Object.fromEntries(
+    practice.slotDefinitions.map((definition) => [definition.id, definition]),
+  ) as Partial<Record<StructuredSlotId, (typeof practice.slotDefinitions)[number]>>
 
   useEffect(() => {
-    window.localStorage.setItem(MODE_KEY, mode)
-  }, [mode])
+    window.localStorage.setItem(keys.mode, mode)
+  }, [keys.mode, mode])
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      window.localStorage.setItem(FREE_DRAFT_KEY, freeCode)
+      window.localStorage.setItem(keys.free, freeCode)
       if (mode === 'free') setDraftSaved(true)
     }, 350)
     return () => window.clearTimeout(timer)
-  }, [freeCode, mode])
+  }, [freeCode, keys.free, mode])
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      window.localStorage.setItem(STRUCTURED_DRAFT_KEY, JSON.stringify(structuredDraft))
+      window.localStorage.setItem(keys.structured, JSON.stringify(structuredDraft))
       if (mode === 'structured') setDraftSaved(true)
     }, 350)
     return () => window.clearTimeout(timer)
-  }, [mode, structuredDraft])
+  }, [keys.structured, mode, structuredDraft])
 
   useEffect(() => () => {
     if (copyTimer.current) window.clearTimeout(copyTimer.current)
   }, [])
+
+  useEffect(() => {
+    if (!submission?.passed || hasCompleted) return
+    window.localStorage.setItem(COMPLETION_KEY, JSON.stringify({
+      completed: true,
+      passedCount: submission.passedCount,
+      total: submission.total,
+      completedAt: new Date().toISOString(),
+    }))
+    setHasCompleted(true)
+    setShowCompletion(true)
+  }, [hasCompleted, submission])
 
   const focusLine = (lineNumber: number) => {
     const view = editorView.current
@@ -404,7 +479,7 @@ export function CodePracticeV2({ onBack }: CodePracticeV2Props) {
       focusSlot(structuredValidation.issue.slotId)
       return
     }
-    const result = runJavaSubset(activeCode, testCase.input, testCase.expected)
+    const result = runJavaSubset(normalizedActiveCode, testCase.input, testCase.expected)
     setSelectedCaseId(testCase.id)
     setLastRun({ testCase, result })
     setSubmission(null)
@@ -419,15 +494,16 @@ export function CodePracticeV2({ onBack }: CodePracticeV2Props) {
     }
     const runs = CODE_PRACTICE_CASES.map((testCase) => ({
       testCase,
-      result: runJavaSubset(activeCode, testCase.input, testCase.expected),
+      result: runJavaSubset(normalizedActiveCode, testCase.input, testCase.expected),
     }))
     const firstFailure = runs.find(({ result }) => !result.ok) ?? null
-    setSubmission({
+    const nextSubmission = {
       passed: firstFailure === null,
       passedCount: runs.filter(({ result }) => result.ok).length,
       total: runs.length,
       firstFailure,
-    })
+    }
+    setSubmission(nextSubmission)
     if (firstFailure) {
       if (firstFailure.testCase.visibility === '公开') {
         setSelectedCaseId(firstFailure.testCase.id)
@@ -444,10 +520,10 @@ export function CodePracticeV2({ onBack }: CodePracticeV2Props) {
   const resetCode = () => {
     if (mode === 'structured') {
       setStructuredDraft(createEmptyStructuredDraft())
-      window.localStorage.removeItem(STRUCTURED_DRAFT_KEY)
+      window.localStorage.removeItem(keys.structured)
     } else {
       setFreeCode(EMPTY_JAVA_BODY)
-      window.localStorage.removeItem(FREE_DRAFT_KEY)
+      window.localStorage.removeItem(keys.free)
     }
     setLastRun(null)
     setSubmission(null)
@@ -456,7 +532,7 @@ export function CodePracticeV2({ onBack }: CodePracticeV2Props) {
   }
 
   const activeSlotIssue = parseState.kind === 'invalid' ? parseState.slotIssue : undefined
-  const categoryGroups = entriesByCategory(JAVA_MAPPING_ENTRIES)
+  const categoryGroups = entriesByCategory(practice.mappings)
 
   return (
     <div className="code-practice-shell page-enter">
@@ -464,15 +540,33 @@ export function CodePracticeV2({ onBack }: CodePracticeV2Props) {
         <div className="code-practice-title">
           <span className="code-practice-mark" aria-hidden="true"><Code2 size={20} /></span>
           <div>
-            <p className="eyebrow">代码实战 · Java</p>
+            <p className="eyebrow">{`代码实战 · ${practice.label}`}</p>
             <h1>把刚才的动作写下来</h1>
           </div>
         </div>
         <div className="code-practice-header-actions">
+          <label className="code-language-picker">
+            <span>提交语言</span>
+            <select
+              value={languageId}
+              aria-label="提交语言"
+              onChange={(event) => onLanguageChange(event.target.value as CodeLanguageId)}
+            >
+              {CODE_LANGUAGES.map((option) => (
+                <option key={option.id} value={option.id}>{option.label}</option>
+              ))}
+            </select>
+          </label>
           <span className="code-draft-status" role="status">
             <span className={draftSaved ? 'is-saved' : ''} />
             {draftSaved ? `${mode === 'structured' ? '结构' : '自由'}草稿已保存` : '正在保存'}
           </span>
+          {onExit && (
+            <button type="button" className="quiet-command" onClick={onExit}>
+              <LayoutGrid size={17} />
+              挑战选择
+            </button>
+          )}
           <button type="button" className="quiet-command" onClick={onBack}>
             <ArrowLeft size={17} />
             返回技能调试
@@ -505,12 +599,12 @@ export function CodePracticeV2({ onBack }: CodePracticeV2Props) {
         <aside className="code-mapping-panel" aria-label="代码参考">
           <div className="reference-heading">
             <div>
-              <p className="panel-kicker">世界动作 → Java</p>
+              <p className="panel-kicker">{`世界动作 → ${practice.label}`}</p>
               <h2>{referenceTab === 'logic' ? '完整逻辑代码' : '代码词典'}</h2>
             </div>
             {referenceTab === 'logic' && (
-              <span className="logic-progress" aria-label={`已写入 ${writtenStepCount} 段，共 ${JAVA_LOGIC_REFERENCE.steps.length} 段`}>
-                {writtenStepCount}/{JAVA_LOGIC_REFERENCE.steps.length}
+              <span className="logic-progress" aria-label={`已写入 ${writtenStepCount} 段，共 ${practice.reference.steps.length} 段`}>
+                {writtenStepCount}/{practice.reference.steps.length}
               </span>
             )}
           </div>
@@ -542,7 +636,7 @@ export function CodePracticeV2({ onBack }: CodePracticeV2Props) {
             <div className="logic-reference-panel" role="tabpanel">
               <p className="mapping-intro">这条轨道与刚才通过验证的技能树顺序一致。</p>
               <div className="logic-translation-track">
-                {JAVA_LOGIC_REFERENCE.steps.map((step) => {
+                {practice.reference.steps.map((step) => {
                   const written = logicProgress.get(step.id) ?? false
                   const copied = copiedStepId === step.id
                   return (
@@ -623,11 +717,11 @@ export function CodePracticeV2({ onBack }: CodePracticeV2Props) {
           )}
         </aside>
 
-        <section className="code-editor-panel" aria-label="Java 代码编辑器">
+        <section className="code-editor-panel" aria-label={`${practice.label} 代码编辑器`}>
           <div className="code-editor-heading">
             <div>
               <p className="panel-kicker">右侧编辑</p>
-              <h2><FileCode2 size={18} /> Java 代码</h2>
+              <h2><FileCode2 size={18} /> {practice.label} 代码</h2>
             </div>
             <div className="code-editor-tools">
               <div className="code-mode-switch" role="radiogroup" aria-label="代码填写方式">
@@ -659,19 +753,22 @@ export function CodePracticeV2({ onBack }: CodePracticeV2Props) {
           {mode === 'structured' ? (
             <StructuredEditor
               draft={structuredDraft}
+              languageLabel={practice.label}
+              scaffold={practice.scaffold}
+              slotDefinitions={practice.slotDefinitions}
               issue={activeSlotIssue}
               onChange={changeStructuredSlot}
               onFieldRef={(slotId, field) => { slotFields.current[slotId] = field }}
             />
           ) : (
             <div className="code-editor-frame">
-              <div className="code-method-signature">void moveZeroes(int[] nums) {'{'}</div>
+              <div className="code-method-signature">{practice.scaffold.methodOpen}</div>
               <div className="code-method-body">
                 <CodeMirror
                   value={freeCode}
                   height="520px"
                   theme={editorTheme}
-                  extensions={[java()]}
+                  extensions={[editorLanguageExtension(languageId)]}
                   onCreateEditor={(view) => { editorView.current = view }}
                   onChange={(value) => {
                     setFreeCode(value)
@@ -680,10 +777,12 @@ export function CodePracticeV2({ onBack }: CodePracticeV2Props) {
                     setSubmission(null)
                   }}
                   basicSetup={{ lineNumbers: true, foldGutter: false, highlightActiveLine: true }}
-                  aria-label="Java 方法体编辑器"
+                  aria-label={`${practice.label} 方法体编辑器`}
                 />
               </div>
-              <div className="code-method-signature code-method-close">{'}'}</div>
+              {practice.scaffold.methodClose && (
+                <div className="code-method-signature code-method-close">{practice.scaffold.methodClose}</div>
+              )}
             </div>
           )}
 
@@ -705,7 +804,7 @@ export function CodePracticeV2({ onBack }: CodePracticeV2Props) {
                 }}
               >
                 {parseState.slotIssue
-                  ? `定位“${SLOT_DEFINITION_BY_ID[parseState.slotIssue.slotId].label}”`
+                  ? `定位“${slotDefinitionById[parseState.slotIssue.slotId]?.label ?? '对应填写项'}”`
                   : `定位第 ${parseState.diagnostic?.line ?? 1} 行`}
               </button>
             )}
@@ -786,11 +885,41 @@ export function CodePracticeV2({ onBack }: CodePracticeV2Props) {
 
           <div className="code-support-note">
             <CircleAlert size={15} />
-            <span>当前沙盒只执行变量、数组、for、if、赋值、交换和自增；其他 Java 语法会明确标记为暂不支持。</span>
+            <span>{`当前沙盒执行 ${practice.label} 的受限安全子集：变量、数组、循环、条件、赋值、交换和递增。超出范围的语法会明确标记为暂不支持。`}</span>
           </div>
         </section>
       </main>
+      {showCompletion && submission?.passed && (
+        <ChallengeCompletion
+          passedCount={submission.passedCount}
+          total={submission.total}
+          onClose={() => setShowCompletion(false)}
+        />
+      )}
     </div>
+  )
+}
+
+export function CodePracticeV2(props: CodePracticeV2Props) {
+  const [languageId, setLanguageId] = useState<CodeLanguageId>(() => {
+    if (typeof window === 'undefined') return 'java'
+    const stored = window.localStorage.getItem(LANGUAGE_KEY)
+    return CODE_LANGUAGES.some((language) => language.id === stored)
+      ? stored as CodeLanguageId
+      : 'java'
+  })
+
+  useEffect(() => {
+    window.localStorage.setItem(LANGUAGE_KEY, languageId)
+  }, [languageId])
+
+  return (
+    <CodePracticeV2Session
+      key={languageId}
+      {...props}
+      languageId={languageId}
+      onLanguageChange={setLanguageId}
+    />
   )
 }
 
